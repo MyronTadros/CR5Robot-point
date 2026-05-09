@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="cr5_color_pointing" type="color_pointing_node.py" name="cr5_color_pointing" output="screen">
+    <rosparam file="$(find cr5_color_pointing)/config/demo.yaml" command="load"/>
+    <rosparam file="$(find cr5_color_pointing)/config/color_thresholds.yaml" command="load"/>
+  </node>
+</launch>

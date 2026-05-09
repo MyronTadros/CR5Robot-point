@@ -1,0 +1,76 @@
+# Project-local generated files
+*.pyc
+*.pyo
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# ROS/catkin build products
+cr5_ws/build/
+cr5_ws/devel/
+cr5_ws/install/
+cr5_ws/log/
+cr5_ws/.catkin_tools/
+
+# Gazebo/ROS runtime output
+.ros/
+*.bag
+*.bag.active
+*.log
+core
+
+# Codex, Copilot, and assistant state
+.codex/
+.copilot/
+
+# Reversible backup for nested git metadata when flattening this workspace into one repo
+.git-nested-backups/
+
+# Lightning AI metadata
+.lightning_studio/
+.lightningignore
+
+# VS Code / remote IDE runtime state
+.vscode
+.vscode/
+.vscode-server
+.vscode-server/
+.cursor-server
+.cursor-server/
+.windsurf-server
+.windsurf-server/
+.idea/
+
+# Personal shell and host environment files
+.bash_history
+.zsh_history
+.python_history
+.bashrc
+.zshrc
+.profile
+.gitconfig
+.condarc
+.hushlogin
+.vimrc
+.wget-hsts
+.sudo_as_admin_successful
+.zcompdump*
+
+# User caches and local tools
+.cache/
+.config/
+.docker/
+.dotnet/
+.ipython/
+.jupyter/
+.local/
+.nvm/
+.oh-my-zsh/
+.ssh/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo

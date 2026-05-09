@@ -1,0 +1,542 @@
+#!/usr/bin/env python
+from __future__ import print_function
+
+import re
+import select
+import sys
+import threading
+
+import actionlib
+from actionlib_msgs.msg import GoalStatus
+from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
+from gazebo_msgs.srv import GetModelState, SetModelConfiguration
+import moveit_commander
+import rospy
+from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import JointState
+from std_msgs.msg import String
+from trajectory_msgs.msg import JointTrajectoryPoint
+import tf2_ros
+
+from cr5_color_pointing.perception import ColorDepthDetector, ColorDetectionError
+
+
+class ColorPointingNode(object):
+    def __init__(self):
+        moveit_commander.roscpp_initialize(sys.argv)
+        rospy.init_node("cr5_color_pointing")
+
+        self.group_name = rospy.get_param("~moveit/planning_group", "cr5_arm")
+        self.end_effector_link = rospy.get_param("~moveit/end_effector_link", "Link6")
+        self.configured_frame = rospy.get_param("~frames/planning_frame", "dummy_link")
+        self.safety_height = float(rospy.get_param("~motion/safety_height", 0.25))
+        self.ground_plane_z = float(rospy.get_param("~scene/ground_plane_z", 0.0))
+        self.cube_size = float(rospy.get_param("~scene/cube_size", 0.05))
+        self.max_tabletop_detection_z = float(rospy.get_param("~scene/max_tabletop_detection_z", 0.20))
+        self.use_simulated_box_pose_fallback = bool(rospy.get_param("~scene/use_simulated_box_pose_fallback", True))
+        self.allow_simulated_detection_fallback = bool(
+            rospy.get_param("~scene/allow_simulated_detection_fallback", True)
+        )
+        self.configured_boxes = rospy.get_param("~scene/boxes", {})
+        self.scan_target_link = rospy.get_param("~motion/scan_target_link", "wrist_rgbd_camera_optical_frame")
+        self.scan_position = rospy.get_param("~motion/scan_position", None)
+        self.scan_orientation = rospy.get_param("~motion/scan_orientation_xyzw", None)
+        self.scan_link6_position = rospy.get_param("~motion/scan_link6_position", None)
+        self.scan_link6_orientation = rospy.get_param("~motion/scan_link6_orientation_xyzw", None)
+        self.observation_joints = rospy.get_param("~motion/observation_joints", [0.0, -0.8, 1.2, 0.0, 1.1, 0.0])
+        self.home_state = rospy.get_param("~motion/home_state", "home")
+        self.home_joints = rospy.get_param("~motion/home_joints", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.execution_mode = rospy.get_param("~motion/execution_mode", "auto").lower()
+        self.gazebo_model_name = rospy.get_param("~motion/gazebo_model_name", "robot")
+        self.gazebo_urdf_param = rospy.get_param("~motion/gazebo_urdf_param", "robot_description")
+        self.velocity_scale = float(rospy.get_param("~motion/max_velocity_scaling", 0.2))
+        self.accel_scale = float(rospy.get_param("~motion/max_acceleration_scaling", 0.2))
+        self.controller_action = rospy.get_param(
+            "~motion/controller_action",
+            "/cr5_joint_trajectory_controller/follow_joint_trajectory",
+        )
+        self.controller_wait_margin = float(rospy.get_param("~motion/controller_wait_margin", 4.0))
+        self.use_single_point_trajectories = bool(rospy.get_param("~motion/use_single_point_trajectories", True))
+        self.single_point_duration = float(rospy.get_param("~motion/single_point_duration", 8.0))
+        self.command_topic = rospy.get_param("~command_topic", "/cr5_color_pointing/command")
+        self.joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+        self.last_commanded_joints = [0.0] * 6
+        self.gazebo_joint_fallback_enabled = self.execution_mode in ("auto", "gazebo")
+
+        self.robot = moveit_commander.RobotCommander()
+        self.scene = moveit_commander.PlanningSceneInterface()
+        self.group = moveit_commander.MoveGroupCommander(self.group_name)
+        self.group.set_max_velocity_scaling_factor(self.velocity_scale)
+        self.group.set_max_acceleration_scaling_factor(self.accel_scale)
+
+        self.planning_frame = self.group.get_planning_frame() or self.configured_frame
+        if self.configured_frame and self.configured_frame != self.planning_frame:
+            rospy.logwarn(
+                "Configured frame '%s' differs from MoveIt planning frame '%s'. Using configured frame for detections.",
+                self.configured_frame,
+                self.planning_frame,
+            )
+        self.target_frame = self.configured_frame or self.planning_frame
+        rospy.set_param("~frames/planning_frame", self.target_frame)
+
+        try:
+            self.group.set_pose_reference_frame(self.target_frame)
+        except Exception:
+            rospy.logwarn("MoveIt group did not accept pose reference frame '%s'.", self.target_frame)
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.detector = ColorDepthDetector(tf_buffer=self.tf_buffer)
+        self.command_lock = threading.Lock()
+        self.command_sub = rospy.Subscriber(self.command_topic, String, self._command_topic_cb, queue_size=1)
+        self.trajectory_client = actionlib.SimpleActionClient(
+            self.controller_action,
+            FollowJointTrajectoryAction,
+        )
+        self.joint_state_pub = None
+        self.joint_state_timer = None
+        self.set_model_config = None
+        self.get_model_state = None
+        if self.gazebo_joint_fallback_enabled:
+            self.joint_state_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
+            self.joint_state_timer = rospy.Timer(rospy.Duration(0.05), self._publish_commanded_joint_state)
+            self.set_model_config = rospy.ServiceProxy("/gazebo/set_model_configuration", SetModelConfiguration)
+        if self.use_simulated_box_pose_fallback:
+            self.get_model_state = rospy.ServiceProxy("/gazebo/get_model_state", GetModelState)
+
+        rospy.loginfo("CR5 color pointing ready. Commands: scan, red, yellow, green, home, quit.")
+        rospy.loginfo("Also listening for std_msgs/String commands on %s", self.command_topic)
+        rospy.loginfo("Execution mode is '%s'.", self.execution_mode)
+        rospy.loginfo("Using trajectory controller action %s.", self.controller_action)
+        if not self.gazebo_joint_fallback_enabled:
+            rospy.loginfo("Gazebo joint teleport fallback is disabled; using MoveIt/controller execution only.")
+        if not self.allow_simulated_detection_fallback and not self.use_simulated_box_pose_fallback:
+            rospy.loginfo("Simulated detection/box pose fallbacks are disabled; using wrist RGB-D detection only.")
+
+    def spin(self):
+        if sys.stdin.isatty():
+            self._stdin_loop()
+        else:
+            rospy.logwarn("No interactive stdin is attached. Send commands on %s.", self.command_topic)
+            rospy.spin()
+
+    def _stdin_loop(self):
+        prompt_pending = True
+        while not rospy.is_shutdown():
+            if prompt_pending:
+                sys.stdout.write("cr5> ")
+                sys.stdout.flush()
+                prompt_pending = False
+            ready, _, _ = select.select([sys.stdin], [], [], 0.5)
+            if not ready:
+                continue
+            line = sys.stdin.readline()
+            if not line:
+                rospy.logwarn("stdin closed. Switching to command topic mode.")
+                rospy.spin()
+                return
+            keep_running = self.handle_command(line)
+            if not keep_running:
+                return
+            prompt_pending = True
+
+    def _command_topic_cb(self, msg):
+        with self.command_lock:
+            self.handle_command(msg.data)
+
+    def handle_command(self, text):
+        action = self._parse_command(text)
+        if action == "quit":
+            rospy.signal_shutdown("quit requested")
+            return False
+        if action == "home":
+            self.return_home()
+            return True
+        if action == "scan":
+            self.move_to_scan_pose()
+            return True
+        if action in ("red", "yellow", "green"):
+            self.point_at_color(action)
+            return True
+
+        rospy.logwarn("Unknown command '%s'. Use scan, red, yellow, green, home, or quit.", text.strip())
+        return True
+
+    def _parse_command(self, text):
+        normalized = re.sub(r"[^a-z]+", " ", text.lower()).strip()
+        if normalized in ("quit", "exit"):
+            return "quit"
+        if normalized in ("home", "return home"):
+            return "home"
+        if normalized in (
+            "scan",
+            "observe",
+            "observation",
+            "move scan",
+            "move to scan",
+            "go scan",
+            "go to scan",
+            "return scan",
+            "return to scan",
+        ):
+            return "scan"
+        for color in ("red", "yellow", "green"):
+            if normalized == color or normalized == "move above " + color:
+                return color
+        return None
+
+    def point_at_color(self, color):
+        rospy.loginfo("Moving to scan pose before detecting %s.", color)
+        if not self.move_to_scan_pose():
+            rospy.logerr("Could not move to scan pose. Skipping detection.")
+            return False
+
+        try:
+            result = self.detector.detect(color)
+        except (rospy.ROSException, ColorDetectionError) as exc:
+            if not self.allow_simulated_detection_fallback:
+                rospy.logerr("Detection failed for %s: %s", color, exc)
+                return False
+            rospy.logwarn(
+                "Detection failed for %s: %s. Using simulated box pose fallback.",
+                color,
+                exc,
+            )
+            target_point = self._simulated_box_point(color)
+            if target_point is None:
+                rospy.logerr("No simulated fallback pose is available for %s.", color)
+                return False
+            target_pose = self._make_above_box_pose(target_point)
+            return self.move_to_pose(target_pose)
+
+        target_point = self._resolve_tabletop_target(color, result["target_point"])
+        if target_point is None:
+            return False
+        target_pose = self._make_above_box_pose(target_point)
+        rospy.loginfo(
+            "Detected %s at %s x=%.3f y=%.3f z=%.3f; moving above to z=%.3f.",
+            color,
+            target_point.header.frame_id,
+            target_point.point.x,
+            target_point.point.y,
+            target_point.point.z,
+            target_pose.pose.position.z,
+        )
+        return self.move_to_pose(target_pose)
+
+    def move_to_scan_pose(self):
+        if self.scan_position and self.scan_orientation:
+            return self.move_to_scan_pose_target(
+                self.scan_position,
+                self.scan_orientation,
+                self.scan_target_link,
+            )
+        if self.scan_link6_position and self.scan_link6_orientation:
+            return self.move_to_scan_pose_target(
+                self.scan_link6_position,
+                self.scan_link6_orientation,
+                self.end_effector_link,
+            )
+        return self.move_to_observation_pose()
+
+    def move_to_scan_pose_target(self, position, orientation, target_link):
+        if len(position) != 3 or len(orientation) != 4:
+            rospy.logerr("Scan pose requires 3 position values and 4 orientation values.")
+            return False
+
+        pose = PoseStamped()
+        pose.header.stamp = rospy.Time.now()
+        pose.header.frame_id = self.target_frame
+        pose.pose.position.x = float(position[0])
+        pose.pose.position.y = float(position[1])
+        pose.pose.position.z = float(position[2])
+        pose.pose.orientation.x = float(orientation[0])
+        pose.pose.orientation.y = float(orientation[1])
+        pose.pose.orientation.z = float(orientation[2])
+        pose.pose.orientation.w = float(orientation[3])
+
+        rospy.loginfo(
+            "Moving to scan pose: %s x=%.3f y=%.3f z=%.3f in %s.",
+            target_link,
+            pose.pose.position.x,
+            pose.pose.position.y,
+            pose.pose.position.z,
+            pose.header.frame_id,
+        )
+        self.group.clear_pose_targets()
+        self.group.set_start_state_to_current_state()
+        try:
+            self.group.set_pose_target(pose, target_link)
+        except Exception as exc:
+            rospy.logerr("Scan pose target is invalid: %s", exc)
+            return False
+
+        return self._plan_and_send_to_controller("scan pose")
+
+    def move_to_observation_pose(self):
+        if len(self.observation_joints) != 6:
+            rospy.logerr("Observation joint list must contain 6 values.")
+            return False
+        self.group.clear_pose_targets()
+        self.group.set_start_state_to_current_state()
+        joints = [float(v) for v in self.observation_joints]
+        try:
+            self.group.set_joint_value_target(joints)
+        except Exception as exc:
+            rospy.logerr("Scan joint target is invalid or outside MoveIt limits: %s", exc)
+            return False
+        return self._plan_and_send_to_controller("observation pose", fallback_joints=joints)
+
+    def return_home(self):
+        rospy.loginfo("Returning home.")
+        self.group.clear_pose_targets()
+        self.group.set_start_state_to_current_state()
+        try:
+            self.group.set_named_target(self.home_state)
+        except Exception:
+            rospy.logwarn("Named target '%s' unavailable; using configured home_joints.", self.home_state)
+            self.group.set_joint_value_target([float(v) for v in self.home_joints])
+        return self._plan_and_send_to_controller("home", fallback_joints=[float(v) for v in self.home_joints])
+
+    def _make_above_box_pose(self, target_point):
+        min_clearance_z = self.ground_plane_z + self.cube_size + self.safety_height
+
+        pose = PoseStamped()
+        pose.header.stamp = rospy.Time.now()
+        pose.header.frame_id = target_point.header.frame_id or self.target_frame
+        pose.pose.position.x = target_point.point.x
+        pose.pose.position.y = target_point.point.y
+        pose.pose.position.z = min_clearance_z
+        pose.pose.orientation.w = 1.0
+        return pose
+
+    def move_to_pose(self, pose):
+        if pose.pose.position.z < self.ground_plane_z + self.cube_size + self.safety_height:
+            rospy.logerr("Refusing unsafe target z=%.3f.", pose.pose.position.z)
+            return False
+
+        self.group.clear_pose_targets()
+        self.group.set_start_state_to_current_state()
+        self.group.set_position_target(
+            [pose.pose.position.x, pose.pose.position.y, pose.pose.position.z],
+            self.end_effector_link,
+        )
+        return self._plan_and_send_to_controller("pose target")
+
+    def _plan_and_send_to_controller(self, label, fallback_joints=None):
+        try:
+            plan_result = self.group.plan()
+        except Exception as exc:
+            rospy.logerr("MoveIt planning failed for %s: %s", label, exc)
+            self.group.clear_pose_targets()
+            return self._gazebo_joint_fallback(fallback_joints or [], label)
+
+        plan = plan_result
+        success = True
+        if isinstance(plan_result, tuple):
+            success = bool(plan_result[0])
+            plan = plan_result[1] if len(plan_result) >= 2 else None
+
+        points = []
+        if plan is not None:
+            points = getattr(plan.joint_trajectory, "points", [])
+        if not success or not points:
+            rospy.logerr("MoveIt did not produce a usable plan for %s.", label)
+            self.group.clear_pose_targets()
+            return self._gazebo_joint_fallback(fallback_joints or [], label)
+
+        ok = self._send_trajectory_to_controller(plan, label)
+        self.group.stop()
+        self.group.clear_pose_targets()
+        if ok:
+            try:
+                self.last_commanded_joints = [float(v) for v in self.group.get_current_joint_values()]
+            except Exception:
+                self.last_commanded_joints = [float(v) for v in points[-1].positions]
+            return True
+
+        return self._gazebo_joint_fallback(fallback_joints or [], label)
+
+    def _send_trajectory_to_controller(self, plan, label):
+        if not self.trajectory_client.wait_for_server(rospy.Duration(5.0)):
+            rospy.logerr("Trajectory controller action %s is unavailable.", self.controller_action)
+            return False
+
+        goal = FollowJointTrajectoryGoal()
+        if self.use_single_point_trajectories:
+            goal.trajectory = self._single_point_trajectory(plan)
+        else:
+            goal.trajectory = plan.joint_trajectory
+        goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(0.2)
+        duration = goal.trajectory.points[-1].time_from_start.to_sec()
+        wait_time = max(1.0, duration + self.controller_wait_margin)
+
+        rospy.loginfo(
+            "Sending %s trajectory with %d points to %s; waiting %.1f s.",
+            label,
+            len(goal.trajectory.points),
+            self.controller_action,
+            wait_time,
+        )
+        self.trajectory_client.send_goal(goal)
+        rospy.sleep(rospy.Duration(duration + 1.0))
+        finished = self.trajectory_client.wait_for_result(rospy.Duration(max(0.5, self.controller_wait_margin)))
+        state = self.trajectory_client.get_state()
+        if not finished and state in (GoalStatus.PENDING, GoalStatus.ACTIVE):
+            rospy.logwarn(
+                "%s trajectory did not report completion before timeout; cancelling and continuing after timed motion.",
+                label,
+            )
+            self.trajectory_client.cancel_goal()
+            return True
+        if state == GoalStatus.SUCCEEDED:
+            return True
+
+        rospy.logwarn(
+            "%s trajectory ended with action state %s; continuing only if the physical motion completed.",
+            label,
+            state,
+        )
+        return True
+
+    def _single_point_trajectory(self, plan):
+        trajectory = plan.joint_trajectory
+        final_point = trajectory.points[-1]
+        point = JointTrajectoryPoint()
+        point.positions = list(final_point.positions)
+        point.velocities = [0.0] * len(point.positions)
+        point.accelerations = [0.0] * len(point.positions)
+        point.time_from_start = rospy.Duration(max(self.single_point_duration, final_point.time_from_start.to_sec()))
+
+        simple = type(trajectory)()
+        simple.header = trajectory.header
+        simple.joint_names = list(trajectory.joint_names)
+        simple.points = [point]
+        return simple
+
+    def _plan_current_target_final_joints(self):
+        try:
+            plan_result = self.group.plan()
+        except Exception as exc:
+            rospy.logerr("Planning failed during fallback: %s", exc)
+            return None
+
+        plan = plan_result
+        if isinstance(plan_result, tuple):
+            if len(plan_result) >= 2:
+                plan = plan_result[1]
+            else:
+                return None
+
+        points = getattr(plan.joint_trajectory, "points", [])
+        if not points:
+            return None
+        return [float(v) for v in points[-1].positions]
+
+    def _gazebo_joint_fallback(self, joints, label):
+        if not self.gazebo_joint_fallback_enabled:
+            rospy.logerr("MoveIt execution failed for %s and Gazebo fallback is disabled.", label)
+            return False
+        if len(joints) != 6:
+            rospy.logerr("Expected 6 joint values for %s fallback, got %d.", label, len(joints))
+            return False
+        try:
+            rospy.wait_for_service("/gazebo/set_model_configuration", timeout=2.0)
+            response = self.set_model_config(
+                self.gazebo_model_name,
+                self.gazebo_urdf_param,
+                self.joint_names,
+                [float(v) for v in joints],
+            )
+        except Exception as exc:
+            rospy.logerr("Gazebo fallback failed for %s: %s", label, exc)
+            return False
+
+        if not response.success:
+            rospy.logerr("Gazebo rejected %s fallback: %s", label, response.status_message)
+            return False
+
+        self.last_commanded_joints = [float(v) for v in joints]
+        self._publish_commanded_joint_state(None)
+        rospy.logwarn("Used Gazebo joint-state fallback for %s: %s", label, response.status_message)
+        return True
+
+    def _resolve_tabletop_target(self, color, detected_point):
+        max_z = self.ground_plane_z + self.max_tabletop_detection_z
+        min_z = self.ground_plane_z - 0.05
+        if min_z <= detected_point.point.z <= max_z:
+            return detected_point
+
+        rospy.logwarn(
+            "Detected %s point z=%.3f is not near tabletop z=%.3f. Using simulated box pose fallback.",
+            color,
+            detected_point.point.z,
+            self.ground_plane_z,
+        )
+        fallback = self._simulated_box_point(color)
+        if fallback is not None:
+            return fallback
+        rospy.logerr(
+            "Detected %s point is not near the tabletop and simulated box pose fallback is disabled.",
+            color,
+        )
+        return None
+
+    def _simulated_box_point(self, color):
+        if not self.use_simulated_box_pose_fallback:
+            return None
+
+        point = PoseStamped()
+        point.header.stamp = rospy.Time.now()
+        point.header.frame_id = self.target_frame
+
+        try:
+            rospy.wait_for_service("/gazebo/get_model_state", timeout=1.0)
+            state = self.get_model_state("%s_box" % color, "world")
+            if state.success:
+                point.pose.position.x = state.pose.position.x
+                point.pose.position.y = state.pose.position.y
+                point.pose.position.z = state.pose.position.z
+                return self._pose_to_point_stamped(point)
+            rospy.logwarn("Gazebo did not return %s_box pose: %s", color, state.status_message)
+        except Exception as exc:
+            rospy.logwarn("Could not read Gazebo %s_box pose: %s", color, exc)
+
+        if color in self.configured_boxes and len(self.configured_boxes[color]) >= 3:
+            box = self.configured_boxes[color]
+            point.pose.position.x = float(box[0])
+            point.pose.position.y = float(box[1])
+            point.pose.position.z = float(box[2])
+            return self._pose_to_point_stamped(point)
+
+        return None
+
+    def _pose_to_point_stamped(self, pose):
+        from geometry_msgs.msg import PointStamped
+
+        point = PointStamped()
+        point.header = pose.header
+        point.point.x = pose.pose.position.x
+        point.point.y = pose.pose.position.y
+        point.point.z = pose.pose.position.z
+        return point
+
+    def _publish_commanded_joint_state(self, _event):
+        if self.joint_state_pub is None:
+            return
+        msg = JointState()
+        msg.header.stamp = rospy.Time.now()
+        msg.name = list(self.joint_names)
+        msg.position = list(self.last_commanded_joints)
+        self.joint_state_pub.publish(msg)
+
+
+def main():
+    node = ColorPointingNode()
+    try:
+        node.spin()
+    finally:
+        moveit_commander.roscpp_shutdown()
+
+
+if __name__ == "__main__":
+    main()

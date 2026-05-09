@@ -1,0 +1,22 @@
+<launch>
+  <arg name="red_x" default="0.45"/>
+  <arg name="red_y" default="-0.25"/>
+  <arg name="red_z" default="0.025"/>
+
+  <arg name="yellow_x" default="0.55"/>
+  <arg name="yellow_y" default="0.0"/>
+  <arg name="yellow_z" default="0.025"/>
+
+  <arg name="green_x" default="0.45"/>
+  <arg name="green_y" default="0.25"/>
+  <arg name="green_z" default="0.025"/>
+
+  <node name="spawn_red_box" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-sdf -file $(find cr5_color_pointing)/models/colored_box_red/model.sdf -model red_box -x $(arg red_x) -y $(arg red_y) -z $(arg red_z)"/>
+
+  <node name="spawn_yellow_box" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-sdf -file $(find cr5_color_pointing)/models/colored_box_yellow/model.sdf -model yellow_box -x $(arg yellow_x) -y $(arg yellow_y) -z $(arg yellow_z)"/>
+
+  <node name="spawn_green_box" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-sdf -file $(find cr5_color_pointing)/models/colored_box_green/model.sdf -model green_box -x $(arg green_x) -y $(arg green_y) -z $(arg green_z)"/>
+</launch>

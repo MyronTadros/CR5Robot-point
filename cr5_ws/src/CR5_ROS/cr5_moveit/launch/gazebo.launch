@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="paused" default="true"/>
+  <arg name="gazebo_gui" default="true"/>
+  <arg name="urdf_path" default="$(find dobot_description)/urdf/cr5_robot_gazebo.urdf"/>
+  <arg name="auto_unpause" default="true"/>
+  <arg name="initial_joint1" default="0.0"/>
+  <arg name="initial_joint2" default="0.0"/>
+  <arg name="initial_joint3" default="0.0"/>
+  <arg name="initial_joint4" default="0.0"/>
+  <arg name="initial_joint5" default="0.0"/>
+  <arg name="initial_joint6" default="0.0"/>
+
+  <!-- startup simulated world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" default="worlds/empty.world"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="gui" value="$(arg gazebo_gui)"/>
+  </include>
+
+  <!-- send robot urdf to param server -->
+  <param name="robot_description" textfile="$(arg urdf_path)" />
+
+  <!-- Spawn in a non-colliding arm pose, then let ros_control hold the joints. -->
+  <node name="spawn_gazebo_model" pkg="gazebo_ros" type="spawn_model"
+    args="-urdf -param robot_description -model robot -x 0 -y 0 -z 0 -J joint1 $(arg initial_joint1) -J joint2 $(arg initial_joint2) -J joint3 $(arg initial_joint3) -J joint4 $(arg initial_joint4) -J joint5 $(arg initial_joint5) -J joint6 $(arg initial_joint6)"
+    respawn="false" output="screen" />
+
+  <include file="$(find cr5_moveit)/launch/ros_controllers.launch"/>
+
+  <node name="unpause_after_controllers" pkg="cr5_moveit" type="unpause_after_controllers.py"
+    output="screen" if="$(arg auto_unpause)">
+    <param name="timeout" value="60.0"/>
+    <param name="hold_initial_pose" value="true"/>
+    <param name="reset_initial_pose" value="true"/>
+    <rosparam param="hold_joints">[joint1, joint2, joint3, joint4, joint5, joint6]</rosparam>
+    <rosparam param="hold_positions" subst_value="true">[$(arg initial_joint1), $(arg initial_joint2), $(arg initial_joint3), $(arg initial_joint4), $(arg initial_joint5), $(arg initial_joint6)]</rosparam>
+  </node>
+
+</launch>

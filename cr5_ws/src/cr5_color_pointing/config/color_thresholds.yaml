@@ -1,0 +1,19 @@
+colors:
+  red:
+    - lower: [0, 100, 80]
+      upper: [10, 255, 255]
+    - lower: [170, 100, 80]
+      upper: [180, 255, 255]
+  yellow:
+    - lower: [20, 100, 80]
+      upper: [35, 255, 255]
+  green:
+    - lower: [40, 80, 60]
+      upper: [85, 255, 255]
+
+detection:
+  min_area: 200
+  morph_kernel: 5
+  depth_window: 5
+  image_timeout: 5.0
+  tf_timeout: 2.0

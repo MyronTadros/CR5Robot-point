@@ -1,0 +1,63 @@
+# Gazebo ROS Control controllers for cr5_robot_gazebo_clean.urdf
+#
+# This file is paired with the clean Gazebo URDF that uses:
+#   hardware_interface/EffortJointInterface
+# transmissions for joint1..joint6.
+#
+# Design goals:
+# - keep gravity ON
+# - use the real FollowJointTrajectory action path for MoveIt
+# - avoid over-aggressive PID gains that can excite Gazebo instability
+# - keep tolerances loose enough for a student simulation while still useful
+#
+# If the arm visibly sags under gravity, raise joint2/joint3 p gains gradually.
+# If the arm oscillates or shakes, lower p and/or raise d slightly.
+
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 50
+
+cr5_joint_trajectory_controller:
+  type: effort_controllers/JointTrajectoryController
+
+  joints:
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+
+  # PID gains for the original-CAD-inertia clean URDF.
+  # These are intentionally more conservative than the prior edited setup.
+  # Approximate gravity torque analysis on the clean URDF showed the largest
+  # gravity loads are mainly joint2 (~41 Nm worst sampled) and joint3 (~11 Nm),
+  # while joint1/joint4/joint5/joint6 have much smaller gravity loads.
+  gains:
+    joint1: {p: 300.0, i: 0.0, d: 40.0, i_clamp: 0.0}
+    joint2: {p: 900.0, i: 0.0, d: 110.0, i_clamp: 0.0}
+    joint3: {p: 650.0, i: 0.0, d: 90.0, i_clamp: 0.0}
+    joint4: {p: 220.0, i: 0.0, d: 30.0, i_clamp: 0.0}
+    joint5: {p: 180.0, i: 0.0, d: 25.0, i_clamp: 0.0}
+    joint6: {p: 80.0, i: 0.0, d: 10.0, i_clamp: 0.0}
+
+  # Keep goals reasonably tolerant at first. Tight tolerances can make the
+  # initial hold trajectory abort even when the visual simulation is acceptable.
+  constraints:
+    goal_time: 60.0
+    stopped_velocity_tolerance: 100.0
+    joint1: {trajectory: 100.0, goal: 100.0}
+    joint2: {trajectory: 100.0, goal: 100.0}
+    joint3: {trajectory: 100.0, goal: 100.0}
+    joint4: {trajectory: 100.0, goal: 100.0}
+    joint5: {trajectory: 100.0, goal: 100.0}
+    joint6: {trajectory: 100.0, goal: 100.0}
+
+  # If an incoming trajectory omits a joint, reject it. MoveIt should send all six.
+  allow_partial_joints_goal: false
+
+  # Time used to stop smoothly if a new trajectory preempts/cancels the current one.
+  stop_trajectory_duration: 1.0
+
+  state_publish_rate: 50
+  action_monitor_rate: 20

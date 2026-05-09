@@ -1,0 +1,41 @@
+topics:
+  rgb_image: /wrist_rgbd/rgb/image_raw
+  depth_image: /wrist_rgbd/depth/image_raw
+  camera_info: /wrist_rgbd/rgb/camera_info
+
+frames:
+  planning_frame: dummy_link
+  camera_frame: wrist_rgbd_camera_optical_frame
+
+moveit:
+  planning_group: cr5_arm
+  end_effector_link: Link6
+
+motion:
+  execution_mode: moveit
+  gazebo_model_name: robot
+  gazebo_urdf_param: robot_description
+  safety_height: 0.25
+  scan_target_link: wrist_rgbd_camera_optical_frame
+  scan_position: [0.55, 0.0, 0.85]
+  scan_orientation_xyzw: [1.0, 0.0, 0.0, 0.0]
+  observation_joints: [3.13, -0.8, 1.2, 0.0, 1.1, 0.0]
+  home_state: home
+  home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  max_velocity_scaling: 0.2
+  max_acceleration_scaling: 0.2
+  use_single_point_trajectories: true
+  single_point_duration: 15.0
+
+scene:
+  ground_plane_z: 0.0
+  cube_size: 0.05
+  max_tabletop_detection_z: 0.20
+  use_simulated_box_pose_fallback: false
+  allow_simulated_detection_fallback: false
+  boxes:
+    red: [0.45, -0.25, 0.025]
+    yellow: [0.55, 0.0, 0.025]
+    green: [0.45, 0.25, 0.025]
+
+command_topic: /cr5_color_pointing/command
