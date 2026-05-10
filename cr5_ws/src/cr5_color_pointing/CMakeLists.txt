@@ -22,6 +22,8 @@ catkin_package()
 catkin_install_python(PROGRAMS
   scripts/color_pointing_node.py
   scripts/detect_color_once.py
+  scripts/auto_enable_cr5.py
+  scripts/execute_real_trajectory.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

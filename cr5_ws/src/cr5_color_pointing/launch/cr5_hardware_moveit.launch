@@ -1,0 +1,15 @@
+<launch>
+    <!-- MoveIt Hardware Execution Launch File -->
+    
+    <arg name="DOBOT_TYPE" default="$(env DOBOT_TYPE)" />
+
+    <!-- 
+      We wrap the standard cr5_moveit.launch but explicitly ensure that 
+      fake_execution is false and trajectory execution is allowed.
+      This allows MoveIt to bind to the FollowJointTrajectory action server 
+      hosted by the dobot_bringup physical node instead of Gazebo.
+    -->
+    <include file="$(find cr5_moveit)/launch/cr5_moveit.launch">
+    </include>
+
+</launch>

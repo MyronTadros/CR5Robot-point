@@ -1,0 +1,15 @@
+<launch>
+    <!-- Physical robot IP address, defaults to standard LAN1 interface -->
+    <arg name="robot_ip" default="192.168.5.1" />
+    <arg name="dobot_type" default="$(env DOBOT_TYPE)" />
+
+    <!-- Instantiate the dobot_bringup hardware interface node for V3 controllers -->
+    <node name="dobot_bringup" pkg="dobot_bringup" type="dobot_bringup" output="screen">
+        <param name="robot_ip" type="string" value="$(arg robot_ip)" />
+    </node>
+
+    <!-- Load the URDF into the parameter server for display and TF generation -->
+    <include file="$(find dobot_description)/launch/display.launch">
+        <arg name="model" value="$(arg dobot_type)" />
+    </include>
+</launch>
