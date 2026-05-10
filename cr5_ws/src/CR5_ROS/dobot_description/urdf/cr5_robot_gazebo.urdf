@@ -245,7 +245,7 @@
   </link>
   <link name="wrist_rgbd_camera_optical_frame" />
   <joint name="wrist_rgbd_camera_joint" type="fixed">
-    <origin xyz="0 0.14 0.08" rpy="0 1.5708 0" />
+    <origin xyz="0 0.12 0.08" rpy="0 1.5708 0" />
     <parent link="Link6" />
     <child link="wrist_rgbd_camera_link" />
   </joint>

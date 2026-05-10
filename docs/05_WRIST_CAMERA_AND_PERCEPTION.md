@@ -24,7 +24,10 @@ The camera is fixed to:
 ```text
 parent: Link6
 child:  wrist_rgbd_camera_link
+origin: xyz="0 0.12 0.08" rpy="0 1.5708 0"
 ```
+
+The `0.12 m` side standoff keeps the simulated wrist camera attached near `Link6` while clearing the wrist geometry from the camera ray. The `wrist_rgbd_camera_optical_frame` uses the ROS camera convention: z forward, x right, y down.
 
 ## Expected Topics
 
@@ -126,11 +129,10 @@ Detection params:
 | `image_timeout` | `5.0` |
 | `tf_timeout` | `2.0` |
 
-## Needs Verification
+## Latest Verified Status
 
-- Confirm wrist topics publish after a clean `run-cr5-gazebo`.
-- Confirm RGB image shows the colored boxes after spawning.
-- Confirm the observation pose sees all three boxes.
-- Confirm the camera optical orientation produces sensible projected 3D points.
-- Confirm TF can transform from the camera frame to `dummy_link`.
-
+- Wrist topics publish after `run-cr5-gazebo`.
+- From `scan`, the RGB image contains red, yellow, and green boxes.
+- Depth from scan is plausible for the ground-plane boxes, with median depth around `0.83 m`.
+- `detect_color_once.py` detects all three colors and transforms them to tabletop-height points in `dummy_link`.
+- TF from `dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.

@@ -52,15 +52,12 @@ Confirmed working or recently verified:
 - Gazebo controllers load as `effort_controllers/JointTrajectoryController`.
 - Startup hold now completes after loosening controller abort tolerances and adding strong Gazebo-only passive joint damping.
 - The robot can settle at startup with near-zero joint velocities.
-- The `scan` command can position the wrist camera above the yellow-box area at about `x=0.58, y=0.01, z=0.83`, pointing downward.
+- The wrist RGB-D camera is side-mounted near `Link6` with a small `0.12 m` side standoff and `0.08 m` vertical standoff to avoid self-occluding on the wrist.
+- The `scan` command positions the wrist camera above the yellow-box area at about `x=0.57, y=0.01, z=0.83`, pointing downward.
 - Wrist RGB-D camera topics exist.
 - Colored boxes spawn successfully.
-
-Not fully accepted yet:
-
-- HSV color detection is not finished. The latest camera image from the corrected scan pose contained only grayscale pixels, so red/yellow/green masks found no blobs.
-- Therefore the full command sequence `scan -> red -> scan -> yellow -> scan -> green` is not yet accepted.
-- The next failing layer to debug is camera/Gazebo rendering or camera sensor orientation/image content, not MoveIt scan positioning.
+- HSV + RGB-D detection works for red, yellow, and green from scan.
+- The full command sequence `red -> scan -> yellow -> scan -> green -> home` has been runtime-tested through the real MoveIt/Gazebo trajectory controller with simulated fallbacks disabled.
 
 ## What Has Been Done So Far
 
@@ -764,9 +761,10 @@ cr5_ws/src/cr5_color_pointing/config/demo.yaml
 Current scan settings:
 
 ```yaml
-scan_target_link: wrist_rgbd_camera_optical_frame
-scan_position: [0.55, 0.0, 0.85]
-scan_orientation_xyzw: [1.0, 0.0, 0.0, 0.0]
+scan_target_link: Link6
+scan_position: [0.55, 0.12, 0.77]
+scan_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
 ```
 
 ### HSV Finds No Colors

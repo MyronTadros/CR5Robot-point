@@ -2,6 +2,27 @@
 
 Meaningful project changes should be recorded here.
 
+## 2026-05-10 - Wrist Camera Scan/Home Runtime Repair
+
+Status: implemented, build passed, runtime accepted
+
+Changes:
+
+- Side-mounted the Gazebo wrist RGB-D camera near `Link6` at `xyz="0 0.12 0.08"` so the camera remains attached to the wrist while no longer looking through wrist geometry.
+- Updated `scan` to target `Link6` at `[0.55, 0.12, 0.77]` with downward orientation `[0.0, 0.0, 1.0, 0.0]`.
+- Added a fixed downward above-box orientation so red/yellow/green moves keep a predictable wrist pose.
+- Changed `home` behavior to use configured launch/home joints directly.
+- Hardened color-pointing execution to wait for fresh `/joint_states`, require usable MoveIt plans, wait for controller results, and record current joints from real controller state.
+- Marked `cr5_moveit/scripts/unpause_after_controllers.py` executable so `roslaunch` starts it directly.
+
+Validation:
+
+- XML/YAML/Python checks, `check_urdf`, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- Fresh `run-cr5-gazebo` launched with gravity ON and both Gazebo controllers running.
+- Colored boxes spawned; scan image contained red, yellow, and green pixels with plausible depth.
+- `detect_color_once.py` detected all three colors at tabletop height.
+- Runtime sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller with simulated fallbacks disabled.
+
 ## 2026-05-09 - Next Agent TODO Handoff
 
 Status: documented

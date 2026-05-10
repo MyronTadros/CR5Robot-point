@@ -54,8 +54,9 @@ From `config/demo.yaml`:
 | End link | `Link6` |
 | Safety height | `0.25 m` |
 | Cube size | `0.05 m` |
-| Scan Link6 position | `[0.55, 0.0, 0.77]` |
+| Scan Link6 position | `[0.55, 0.12, 0.77]` |
 | Scan Link6 orientation xyzw | `[0.0, 0.0, 1.0, 0.0]` |
+| Above-box Link6 orientation xyzw | `[0.0, 0.0, 1.0, 0.0]` |
 | Observation/scan joints | `[3.13, -0.8, 1.2, 0.0, 1.1, 0.0]` |
 | Home state | `home` |
 | Command topic | `/cr5_color_pointing/command` |
@@ -102,7 +103,7 @@ Do not paste the full `docker exec ... rostopic pub ...` command at the `cr5>` p
 `scan` uses a Cartesian MoveIt target instead of a guessed joint pose. The target places `Link6` near:
 
 ```text
-x=0.55, y=0.0, z=0.77
+x=0.55, y=0.12, z=0.77
 ```
 
 with orientation:
@@ -111,7 +112,7 @@ with orientation:
 xyzw=[0.0, 0.0, 1.0, 0.0]
 ```
 
-Because the wrist camera is fixed slightly above `Link6`, this puts the camera roughly above the yellow box and points the optical axis down toward the ground where the boxes sit.
+Because the wrist camera is fixed to `Link6` with a small side/up standoff, this puts the camera roughly above the yellow box and points the optical axis down toward the ground where the boxes sit. The same downward Link6 orientation is used for above-box pointing targets so MoveIt does not choose arbitrary wrist orientations.
 
 The older `motion/observation_joints` value remains as a fallback if the Cartesian scan pose is removed from config.
 

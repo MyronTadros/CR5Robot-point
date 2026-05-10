@@ -1,24 +1,29 @@
 # Current Status
 
-Last documentation update: 2026-05-09
+Last documentation update: 2026-05-10
 
-## Latest Update From Camera/Scan Repair Pass
+## Latest Update From Wrist Camera Scan/Home Repair
 
-Confirmed in the latest runtime pass:
+Confirmed in the latest runtime pass on 2026-05-10:
 
 - `run-cr5-gazebo` launched with gravity ON.
 - `cr5_joint_trajectory_controller` loaded as `effort_controllers/JointTrajectoryController`.
-- After loosening Gazebo trajectory abort tolerances and adding strong Gazebo-only passive joint damping/friction, startup hold completed and `/joint_states` settled near zero with very small velocities.
+- Startup hold completed and `/joint_states` settled near zero with very small velocities.
+- `cr5_moveit/scripts/unpause_after_controllers.py` is executable and starts from `roslaunch`.
 - Colored boxes spawned successfully.
-- The `scan` command moved the wrist camera to a good overhead pose near `x=0.581, y=0.006, z=0.825` in `dummy_link`.
-- The scan optical-frame orientation was nearly straight down, with RPY about `[179 deg, 3 deg, 0 deg]`.
+- The wrist camera is side-mounted near `Link6` at `xyz="0 0.12 0.08"` to avoid looking through wrist geometry.
+- The `scan` command moved the wrist camera to a good overhead pose near `x=0.57, y=0.01, z=0.83` in `dummy_link`.
+- The scan optical-frame orientation points down toward the ground-plane boxes.
+- The scan RGB image contained red, yellow, and green boxes, with median depth around `0.83 m`.
+- `detect_color_once.py` detected red, yellow, and green at plausible tabletop-height points.
+- The command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller with simulated fallbacks disabled.
+- `home` returned to near-zero launch/home joints.
 
-Still not accepted:
+Known non-blocking runtime noise:
 
-- HSV detection is not working yet.
-- From the corrected scan pose, the latest sampled RGB frame had only grayscale pixels: BGR min/max channels were equal and red/yellow/green broad HSV masks all had `0` pixels.
-- Therefore the current failing layer is camera image/rendering content or Gazebo camera sensor orientation, not scan motion or controller startup.
-- Full sequence `scan -> red -> scan -> yellow -> scan -> green` is not accepted yet.
+- MoveIt still warns that the SRDF virtual joint child frame differs from the URDF root frame.
+- MoveIt still warns that `kinematics_solver_attempts` is obsolete.
+- A transient rospy topic-close traceback appeared during one green detection, but detection and motion completed.
 
 ## Live Inspection During This Docs Pass
 
@@ -115,16 +120,12 @@ Current implementation:
 - `gazebo.launch` now sets all six configured initial joints to `0.0` and `reset_initial_pose=false`, so the startup helper does not call the direct model-configuration reset.
 - XML/YAML syntax checks, `check_urdf`, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
 
-Blocked:
+Accepted in the latest runtime pass:
 
-- Gazebo control is not accepted yet. Runtime checks showed gravity ON and the effort controller running, but the arm still failed the physical acceptance criterion.
-- The clean-baseline launch produced finite `/joint_states`, but the initial hold trajectory aborted with action state `4`.
-- Runtime feedback showed high/unstable velocities and saturated efforts on several joints, so the failing layer is Gazebo physics/controller dynamics rather than URDF parsing, YAML loading, controller resource claiming, camera topics, or MoveIt action namespace mapping.
-
-Needs manual verification:
-
-- Do not proceed to color pointing yet.
-- Continue Gazebo dynamics/controller tuning until TurboVNC shows the arm holding before, during, and after RViz MoveIt Execute with gravity ON.
+- Gravity stayed ON.
+- `joint_state_controller` and `cr5_joint_trajectory_controller` were running.
+- The startup hold trajectory succeeded.
+- The full color-pointing sequence returned home with near-zero joints and without Gazebo joint teleport fallback.
 
 ## Wrist Camera Status
 
@@ -137,11 +138,11 @@ Implemented:
 - RGB frames published around `10-11 Hz`,
 - TF from `Link6` to `wrist_rgbd_camera_optical_frame` was present.
 
-Needs verification:
+Verified:
 
-- RGB image shows colored boxes,
-- depth data is usable,
-- TF transform to `dummy_link` is correct.
+- RGB image from scan shows red, yellow, and green boxes.
+- Depth data is usable for the boxes.
+- TF from the camera optical frame to `dummy_link` is available during runtime.
 
 ## Color Pointing Status
 
@@ -155,14 +156,14 @@ Implemented:
 - default command mode now uses MoveIt only and does not publish fake `/joint_states`,
 - simulated detection and box-pose fallbacks are disabled by default.
 - explicit `scan` command moves to a Cartesian wrist-camera overview pose.
-- scan currently targets `Link6` at `[0.55, 0.0, 0.77]` with orientation `[0.0, 0.0, 1.0, 0.0]`, which should place the camera above the yellow box and point it down at the ground-plane boxes.
+- scan currently targets `Link6` at `[0.55, 0.12, 0.77]` with orientation `[0.0, 0.0, 1.0, 0.0]`, which places the side-mounted wrist camera above the yellow box and points it down at the ground-plane boxes.
+- above-box commands use the same downward Link6 orientation.
 - scan joints `[3.13, -0.8, 1.2, 0.0, 1.1, 0.0]` remain only as fallback if the Cartesian scan pose is removed from config.
 
-Needs verification:
+Verified:
 
-- red/yellow/green boxes spawned successfully at expected positions in the latest run,
-- red detection from the current/attempted observation pose found a red blob but transformed it near robot/wrist height, not the tabletop,
-- yellow and green detection failed from that pose because no blobs were visible,
-- the command node failed cleanly at the observation-pose MoveIt step with fallback disabled,
-- tune or choose a settled observation pose where the wrist camera actually sees all three boxes,
-- re-run detector and command-node tests after the observation motion/camera view issue is solved.
+- red/yellow/green boxes spawned successfully at expected positions in the latest run.
+- red detection returned about `x=0.451, y=-0.245, z=0.050`.
+- yellow detection returned about `x=0.547, y=0.000, z=0.050`.
+- green detection returned about `x=0.450, y=0.227, z=0.050`.
+- red/yellow/green/home commands completed through MoveIt/Gazebo controller execution with fallbacks disabled.

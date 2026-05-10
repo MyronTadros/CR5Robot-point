@@ -16,14 +16,17 @@ motion:
   gazebo_model_name: robot
   gazebo_urdf_param: robot_description
   safety_height: 0.25
-  scan_target_link: wrist_rgbd_camera_optical_frame
-  scan_position: [0.55, 0.0, 0.85]
-  scan_orientation_xyzw: [1.0, 0.0, 0.0, 0.0]
+  scan_target_link: Link6
+  scan_position: [0.55, 0.12, 0.77]
+  scan_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+  above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
   observation_joints: [3.13, -0.8, 1.2, 0.0, 1.1, 0.0]
   home_state: home
   home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   max_velocity_scaling: 0.2
   max_acceleration_scaling: 0.2
+  joint_state_timeout: 5.0
+  joint_state_max_age: 1.0
   use_single_point_trajectories: true
   single_point_duration: 15.0
 
