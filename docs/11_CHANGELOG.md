@@ -2,6 +2,42 @@
 
 Meaningful project changes should be recorded here.
 
+## 2026-05-10 - Wrist RGB-D Depth Frame Alignment
+
+Status: runtime verified
+
+Changes:
+
+- Restored the standard ROS optical-frame fixed rotation on `wrist_rgbd_camera_optical_joint`.
+- Kept the Gazebo depth sensor attached to the physical `wrist_rgbd_camera_link` while the plugin publishes `frameName=wrist_rgbd_camera_optical_frame`; this matches Gazebo camera sensor ray convention with ROS optical camera projection.
+- Kept `/wrist_rgbd/...` topics unchanged.
+- Added detection debug logging for color, pixel, median depth, camera info frame, camera-frame XYZ, and transformed target-frame XYZ.
+
+Validation:
+
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- Runtime command tests through `/cr5_color_pointing/command` passed after spawning colored boxes.
+- A direct PTY CLI test also accepted typed `red` at the `cr5>` prompt and moved above red successfully.
+- Red: pixel `(520,256)`, depth `0.6644`, world `(0.4543, -0.2395, 0.0501)`, moved above to `z=0.300`, controller status `3`.
+- Yellow: pixel `(318,176)`, depth `0.6505`, world `(0.5513, 0.0019, 0.0500)`, moved above to `z=0.300`, controller status `3`.
+- Green: pixel `(112,260)`, depth `0.6510`, world `(0.4545, 0.2446, 0.0500)`, moved above to `z=0.300`, controller status `3`.
+
+## 2026-05-09 - Gazebo/RViz Launch Error Diagnosis
+
+Status: diagnosed, helper permission fixed
+
+Changes:
+
+- Diagnosed a `run-cr5-gazebo` failure where RViz was being started by `demo_gazebo.launch`, but the active ROS/Gazebo session was already stale/running.
+- Confirmed launch output included `SpawnModel: Failure - entity already exists`, duplicate `robot_state_publisher` shutdowns, and a second RViz process.
+- Fixed `cr5_moveit/scripts/unpause_after_controllers.py` permissions so roslaunch can execute the controller startup helper.
+- Confirmed `rosrun cr5_moveit unpause_after_controllers.py` now resolves and starts the helper instead of reporting it as non-executable.
+
+Notes:
+
+- The existing launch from the user terminal was left running.
+- The docs still need a follow-up pass for Gazebo startup drift: `docs/12_CURRENT_STATUS.md` previously reported `reset_initial_pose=false`, while the checked launch file currently sets it to `true`.
+
 ## 2026-05-09 - Next Agent TODO Handoff
 
 Status: documented

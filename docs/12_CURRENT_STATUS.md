@@ -2,7 +2,24 @@
 
 Last documentation update: 2026-05-09
 
-## Latest Update From Camera/Scan Repair Pass
+## Live Gazebo/RViz Launch Check
+
+Confirmed during a later launch diagnosis:
+
+- `run-cr5-gazebo` maps to `roslaunch cr5_moveit demo_gazebo.launch`.
+- `demo_gazebo.launch` does include `moveit_rviz.launch`, so RViz is intended to start with Gazebo + MoveIt.
+- A live check showed RViz processes had started, but the ROS/Gazebo graph was stale/running from an earlier launch.
+- The captured launch output included `SpawnModel: Failure - entity already exists` and repeated duplicate `robot_state_publisher` shutdowns.
+- `cr5_moveit/scripts/unpause_after_controllers.py` existed but lacked executable permission, causing roslaunch to report that it could not locate the node type.
+- The helper script is now executable and `rosrun cr5_moveit unpause_after_controllers.py` resolves to the script.
+
+Needs operator cleanup before the next clean launch:
+
+- Stop the currently running `run-cr5-gazebo` terminal or restart the `cr5ros` container before launching again.
+- Start only one Gazebo launch at a time; otherwise Gazebo model spawning fails because `robot` already exists.
+- Re-check the current `gazebo.launch` startup parameters before relying on this file: the checked launch file currently sets `reset_initial_pose=true`, while an earlier status note below says `false`.
+
+## Previous Camera/Scan Repair Pass
 
 Confirmed in the latest runtime pass:
 
@@ -136,6 +153,9 @@ Implemented:
 - RGB camera info published `640x480` in `wrist_rgbd_camera_optical_frame`,
 - RGB frames published around `10-11 Hz`,
 - TF from `Link6` to `wrist_rgbd_camera_optical_frame` was present.
+- Gazebo depth sensor remains attached to `wrist_rgbd_camera_link`, with plugin `frameName=wrist_rgbd_camera_optical_frame`.
+- `wrist_rgbd_camera_optical_joint` uses the standard ROS optical rotation `rpy="-1.5708 0 -1.5708"`.
+- Detection logs now include color, pixel, median depth, camera info frame, camera-frame XYZ, and transformed planning-frame XYZ.
 
 Needs verification:
 
@@ -160,9 +180,12 @@ Implemented:
 
 Needs verification:
 
-- red/yellow/green boxes spawned successfully at expected positions in the latest run,
-- red detection from the current/attempted observation pose found a red blob but transformed it near robot/wrist height, not the tabletop,
-- yellow and green detection failed from that pose because no blobs were visible,
-- the command node failed cleanly at the observation-pose MoveIt step with fallback disabled,
-- tune or choose a settled observation pose where the wrist camera actually sees all three boxes,
-- re-run detector and command-node tests after the observation motion/camera view issue is solved.
+- continue checking repeated runs after full Gazebo relaunches.
+
+Verified on 2026-05-10:
+
+- `scan` moved to `observation_joints`.
+- Red detected at world `(0.4543, -0.2395, 0.0501)` and moved above to `z=0.300`; controller status `3`.
+- Yellow detected at world `(0.5513, 0.0019, 0.0500)` and moved above to `z=0.300`; controller status `3`.
+- Green detected at world `(0.4545, 0.2446, 0.0500)` and moved above to `z=0.300`; controller status `3`.
+- A direct PTY run accepted typed `red` at the `cr5>` prompt and again detected red at world `(0.4544, -0.2395, 0.0501)` before moving above it; controller status `3`.

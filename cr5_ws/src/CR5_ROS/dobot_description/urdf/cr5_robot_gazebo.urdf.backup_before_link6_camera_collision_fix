@@ -257,6 +257,7 @@
         <color rgba="0.05 0.05 0.05 1.0" />
       </material>
     </visual>
+
     <inertial>
       <mass value="0.001" />
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -273,7 +274,7 @@
   <link name="wrist_rgbd_camera_optical_frame" />
 
   <joint name="wrist_rgbd_camera_optical_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
     <parent link="wrist_rgbd_camera_link" />
     <child link="wrist_rgbd_camera_optical_frame" />
   </joint>

@@ -35,7 +35,7 @@ class ColorDepthDetector(object):
         self.rgb_topic = rospy.get_param("~topics/rgb_image", "/wrist_rgbd/rgb/image_raw")
         self.depth_topic = rospy.get_param("~topics/depth_image", "/wrist_rgbd/depth/image_raw")
         self.camera_info_topic = rospy.get_param("~topics/camera_info", "/wrist_rgbd/rgb/camera_info")
-        self.camera_frame = rospy.get_param("~frames/camera_frame", "wrist_rgbd_camera_link")
+        self.camera_frame = rospy.get_param("~frames/camera_frame", "wrist_rgbd_camera_optical_frame")
         self.target_frame = rospy.get_param("~frames/planning_frame", "dummy_link")
         self.image_timeout = float(rospy.get_param("~detection/image_timeout", 5.0))
         self.tf_timeout = float(rospy.get_param("~detection/tf_timeout", 2.0))
@@ -65,6 +65,25 @@ class ColorDepthDetector(object):
         depth_m = self._median_depth(depth, u, v)
         camera_point = self._project_to_camera(info_msg, u, v, depth_m)
         target_point = self._transform_point(camera_point)
+
+        rospy.loginfo(
+            "Detection debug: color=%s pixel=(%d,%d) depth=%.4f camera_info_frame=%s "
+            "camera_frame=%s camera_xyz=(%.4f, %.4f, %.4f) target_frame=%s "
+            "target_xyz=(%.4f, %.4f, %.4f)",
+            color,
+            u,
+            v,
+            depth_m,
+            info_msg.header.frame_id or "<empty>",
+            camera_point.header.frame_id,
+            camera_point.point.x,
+            camera_point.point.y,
+            camera_point.point.z,
+            target_point.header.frame_id,
+            target_point.point.x,
+            target_point.point.y,
+            target_point.point.z,
+        )
 
         return {
             "color": color,

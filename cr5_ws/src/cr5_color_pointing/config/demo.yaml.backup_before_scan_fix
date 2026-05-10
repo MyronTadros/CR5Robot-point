@@ -17,11 +17,9 @@ motion:
   gazebo_urdf_param: robot_description
   safety_height: 0.25
   scan_target_link: wrist_rgbd_camera_optical_frame
-
-  # Scan must use this joint-space observation pose.
-  # Do NOT use scan_position / scan_orientation here; those caused IK failure.
-  observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
-
+  # scan_position: [0.55, 0.0, 0.85]
+  # scan_orientation_xyzw: [1.0, 0.0, 0.0, 0.0]
+  observation_joints: [3.13, -0.8, 1.2, 0.0, 1.1, 0.0]
   home_state: home
   home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   max_velocity_scaling: 0.2
@@ -39,18 +37,5 @@ scene:
     red: [0.45, -0.25, 0.025]
     yellow: [0.55, 0.0, 0.025]
     green: [0.45, 0.25, 0.025]
-
-colors:
-  red:
-    - lower: [0, 100, 80]
-      upper: [10, 255, 255]
-    - lower: [170, 100, 80]
-      upper: [180, 255, 255]
-  yellow:
-    - lower: [20, 100, 80]
-      upper: [35, 255, 255]
-  green:
-    - lower: [40, 80, 60]
-      upper: [85, 255, 255]
 
 command_topic: /cr5_color_pointing/command

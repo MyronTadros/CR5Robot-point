@@ -220,64 +220,40 @@
     <limit lower="-3.14" upper="3.14" effort="350" velocity="1.2" />
     <dynamics damping="40.0" friction="3.0" />
   </joint>
-  <!--
-    Dobot VX500 wrist smart camera for Gazebo perception.
-
-    This block changes camera geometry/placement only. The CR5 arm links, joints,
-    transmissions, controller interfaces, inertials, and joint limits remain unchanged.
-
-    Mounting basis:
-    - VX500 is an eye-in-hand camera mounted to the robot end flange with its adapter flange.
-    - The adapter flange conforms to ISO 9409-1 and is fixed using four M6 screws.
-    - Body dimensions are approximated from VX500 specs: 65.2 mm x 65.2 mm x 47 mm,
-      mass 520 g excluding flange.
-    - The Link6 -> camera transform follows the CR_ROS wrist camera mounting convention
-      from the reference CR5 URDF: xyz="0 -0.055 0", rpy="1.5708 -1.5708 0".
-
-    Frame convention:
-    - wrist_rgbd_camera_link is the approximate VX500 body/lens frame.
-    - wrist_rgbd_camera_optical_frame is co-located at the lens/front face and is used
-      as the Gazebo plugin frameName.  Its +Z axis is the simulated optical/view axis.
-
-    Note: The real VX500 is a mono smart camera. We keep a Gazebo RGB-D camera sensor
-    because the color-pointing demo depends on /wrist_rgbd RGB and depth topics.
-  -->
+  <!--Wrist RGB-D camera for Gazebo perception. The optical frame follows ROS camera convention: z forward, x right, y down.-->
   <link name="wrist_rgbd_camera_link">
-    <!-- VX500-style camera body.
-         Visual/sensor only for Gazebo stability: no collision geometry and tiny inertial.
-         The real VX500 mass should be considered for real TCP/tool setup, but the
-         Gazebo CR5 effort controller is not robust enough to use camera mass/collision
-         as part of the arm dynamics. -->
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size="0.0652 0.047 0.0652" />
+        <box size="0.04 0.04 0.03" />
       </geometry>
-      <material name="vx500_dark_gray">
-        <color rgba="0.05 0.05 0.05 1.0" />
+      <material name="camera_black">
+        <color rgba="0.02 0.02 0.02 1" />
       </material>
     </visual>
-    <inertial>
-      <mass value="0.001" />
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
-      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7" />
+      <geometry>
+        <box size="0.04 0.04 0.03" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5" />
     </inertial>
   </link>
-
+  <link name="wrist_rgbd_camera_optical_frame" />
   <joint name="wrist_rgbd_camera_joint" type="fixed">
-    <origin xyz="0 -0.055 0" rpy="1.5708 -1.5708 0" />
+    <origin xyz="0 0.14 0.08" rpy="0 1.5708 0" />
     <parent link="Link6" />
     <child link="wrist_rgbd_camera_link" />
   </joint>
-
-  <link name="wrist_rgbd_camera_optical_frame" />
-
   <joint name="wrist_rgbd_camera_optical_joint" type="fixed">
     <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708" />
     <parent link="wrist_rgbd_camera_link" />
     <child link="wrist_rgbd_camera_optical_frame" />
   </joint>
-
   <!--Gazebo ROS Control transmissions for actuated CR5 joints.-->
   <transmission name="joint1_trans">
     <type>transmission_interface/SimpleTransmission</type>
@@ -394,12 +370,10 @@
   <gazebo reference="wrist_rgbd_camera_link">
     <selfCollide>false</selfCollide>
     <gravity>true</gravity>
-    <material>Gazebo/White</material>
+    <material>Gazebo/Black</material>
   </gazebo>
-
   <gazebo reference="wrist_rgbd_camera_link">
-    <selfCollide>false</selfCollide>
-    <gravity>true</gravity>
+    <material>Gazebo/Black</material>
     <sensor type="depth" name="wrist_rgbd_camera">
       <always_on>true</always_on>
       <update_rate>15.0</update_rate>
@@ -436,5 +410,4 @@
       </plugin>
     </sensor>
   </gazebo>
-
 </robot>

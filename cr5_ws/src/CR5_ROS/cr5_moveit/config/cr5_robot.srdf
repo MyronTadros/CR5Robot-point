@@ -39,4 +39,7 @@
     <disable_collisions link1="Link4" link2="Link6" reason="Never" />
     <disable_collisions link1="Link4" link2="base_link" reason="Never" />
     <disable_collisions link1="Link5" link2="Link6" reason="Adjacent" />
+  <disable_collisions link1="Link6" link2="wrist_rgbd_camera_link" reason="Adjacent" />
+  <disable_collisions link1="Link6" link2="wrist_rgbd_camera_optical_frame" reason="Adjacent" />
+  <disable_collisions link1="wrist_rgbd_camera_link" link2="wrist_rgbd_camera_optical_frame" reason="Adjacent" />
 </robot>
