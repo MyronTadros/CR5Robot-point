@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 IMAGE_NAME="cr5-ros-melodic-turbovnc:local"
 CONTAINER_NAME="cr5ros"
-STUDIO_DIR="/teamspace/studios/this_studio"
+STUDIO_DIR="/home/mo-sameh1/Documents/GitHub/CR5Robot-point"
 WS_DIR="${STUDIO_DIR}/cr5_ws"
 BUILD_DIR="${STUDIO_DIR}/cr5_docker_build"
 BIN_DIR="${HOME}/.local/bin"

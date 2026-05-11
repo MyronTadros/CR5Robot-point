@@ -54,6 +54,9 @@ Confirmed working or recently verified:
 - The robot can settle at startup with near-zero joint velocities.
 - The wrist RGB-D camera uses the merged VX500-style wrist mount at `Link6 -> wrist_rgbd_camera_link` with `xyz="0 -0.055 0"` and `rpy="1.5708 -1.5708 0"`.
 - The `scan` command uses the configured `observation_joints` pose; in the latest run the optical frame was around `world x=0.525, y=0.018, z=0.704`, pointing down at the boxes.
+- Above-box color moves now keep the same wrist-camera-down attitude and compensate for the camera offset from `Link6`, so the wrist RGB-D optical frame stays centered over the requested box instead of pitching up.
+- Above-box camera targets include an extra `0.25 m` gripper-clearance margin on top of the original `0.25 m` safety height.
+- Color commands skip the redundant scan trajectory when the robot is already within `0.035 rad` of `observation_joints`, removing the visible delay after a prior `scan`.
 - Wrist RGB-D camera topics exist.
 - Colored boxes spawn successfully.
 - HSV + RGB-D detection works for red, yellow, and green from scan.
@@ -482,7 +485,7 @@ docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Return home.'\''"'
 ```
 
-Latest verification note: after the main-camera merge, the scan image contained red, yellow, and green pixels, one-shot detections passed for all three colors, and the full `red -> scan -> yellow -> scan -> green -> home` command sequence completed through the real trajectory controller with fallbacks disabled.
+Latest verification note: after the gripper-clearance and scan-skip fixes, `scan` plus `Move above red.` completed through the real trajectory controller. The color command skipped the redundant scan move, detected red in about `0.4 s`, and sent the above-box trajectory in about `0.5 s`. The post-move wrist camera frame was near `world x=0.458, y=-0.240, z=0.535`, its optical +Z axis was `[-0.032, 0.007, -0.999]` in world, and the RGB image still contained the red box.
 
 ## Color Detection Checks
 
@@ -762,8 +765,11 @@ Current scan settings:
 
 ```yaml
 scan_target_link: wrist_rgbd_camera_optical_frame
+above_box_extra_clearance: 0.25
 observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
-above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+scan_joint_tolerance: 0.035
+above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+center_camera_over_box: true
 ```
 
 ### HSV Finds No Colors

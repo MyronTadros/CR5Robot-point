@@ -2,6 +2,47 @@
 
 Meaningful project changes should be recorded here.
 
+## 2026-05-11 - Extra Gripper Clearance And Scan-Skip Latency Fix
+
+Status: implemented, build passed, runtime verified for red
+
+Changes:
+
+- Added `motion/above_box_extra_clearance: 0.25`, so the above-box camera target now uses `cube_size + safety_height + extra_clearance`.
+- Added `motion/scan_joint_tolerance: 0.035`.
+- Updated `color_pointing_node.py` to skip the redundant observation-joint trajectory when a color command is issued from an already-scanned pose.
+
+Validation:
+
+- Python compile, YAML load, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched; controllers were running and wrist RGB-D topics were present.
+- Colored boxes spawned successfully.
+- Topic commands `scan`, `Move above red.`, and `Return home.` completed through the real trajectory controller with action status `3`.
+- `Move above red.` skipped the redundant scan move with max joint error `0.0186 rad`.
+- The color command received at `07:14:16.920` detected red by `07:14:17.319` and sent the above-red trajectory at `07:14:17.419`.
+- The high-clearance red move left the camera frame near `world x=0.458, y=-0.240, z=0.535`, with optical +Z `[-0.032, 0.007, -0.999]`; the image still contained the red box.
+- Simulated motion/detection fallbacks stayed disabled and unused.
+
+## 2026-05-11 - Above-Box Wrist Camera Orientation Fix
+
+Status: implemented, build passed, runtime verified for red
+
+Changes:
+
+- Changed the configured above-box orientation to `[0.7071068, -0.7071068, 0.0, 0.0]` so the merged wrist camera optical frame points down during color moves.
+- Added `motion/center_camera_over_box: true`.
+- Updated `color_pointing_node.py` to read the configured camera frame, normalize the above-box quaternion, look up the `Link6 -> wrist_rgbd_camera_optical_frame` offset, and compensate the Link6 target so the camera is centered over the detected box.
+
+Validation:
+
+- Python compile, YAML load, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched; controllers were running and wrist RGB-D topics were present.
+- Colored boxes spawned successfully.
+- Topic commands `scan` and `Move above red.` completed through the real trajectory controller with action status `3`.
+- Detection logged red at `world x=0.454, y=-0.240, z=0.050`.
+- After the red move, the camera frame was near `world x=0.452, y=-0.239, z=0.285`, the camera optical +Z axis in world was `[-0.033, 0.007, -0.999]`, and the RGB image contained `13924` red-mask pixels.
+- Simulated motion/detection fallbacks stayed disabled and unused.
+
 ## 2026-05-11 - Main Camera Merge And Color Sequence Verification
 
 Status: merged, build passed, runtime accepted

@@ -2,7 +2,47 @@
 
 Last documentation update: 2026-05-11
 
-## Latest Update From Main Camera Merge
+## Latest Update From Gripper Clearance And Scan-Skip Fix
+
+Confirmed in the 2026-05-11 high-clearance red-command runtime pass:
+
+- `motion/above_box_extra_clearance` is now `0.25`.
+- The default above-box camera target z is `ground_plane_z + cube_size + safety_height + above_box_extra_clearance`, which is `0.55 m`.
+- `motion/scan_joint_tolerance` is now `0.035 rad`.
+- Color commands skip the redundant observation-joint trajectory when live `/joint_states` are already within that tolerance.
+- Python compile, YAML load, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched with gravity ON.
+- `joint_state_controller` and `cr5_joint_trajectory_controller` were running.
+- Wrist RGB-D topics were present.
+- Colored boxes spawned successfully.
+- Topic commands `scan`, `Move above red.`, and `Return home.` completed through the real trajectory controller; the red and home goals reported action status `3`.
+- `Move above red.` skipped the redundant scan move with max joint error `0.0186 rad`.
+- The color command received at `07:14:16.920` detected red by `07:14:17.319` and sent the above-red trajectory at `07:14:17.419`.
+- Red detection logged `world x=0.454, y=-0.240, z=0.050`.
+- After the red move, the camera frame was near `world x=0.458, y=-0.240, z=0.535`.
+- The post-move camera optical +Z axis in world was `[-0.032, 0.007, -0.999]`, confirming the camera remained looking down.
+- The post-move RGB image still contained the red box, with `2419` red-mask pixels.
+- `home` returned to near-zero launch/home joints.
+
+## Above-Box Camera Orientation Runtime Pass
+
+Confirmed in the 2026-05-11 red-command runtime pass:
+
+- The above-box orientation is now `[0.7071068, -0.7071068, 0.0, 0.0]`.
+- `motion/center_camera_over_box` is enabled.
+- The command node compensates for the fixed `Link6 -> wrist_rgbd_camera_optical_frame` camera offset before sending the Link6 above-box pose.
+- Python compile, YAML load, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched with gravity ON.
+- `joint_state_controller` and `cr5_joint_trajectory_controller` were running.
+- Wrist RGB-D topics were present.
+- Colored boxes spawned successfully.
+- Topic commands `scan` and `Move above red.` completed through the real trajectory controller; the red goal reported action status `3`.
+- Red detection logged `world x=0.454, y=-0.240, z=0.050`.
+- After the red move, the camera frame was near `world x=0.452, y=-0.239, z=0.285`.
+- The post-move camera optical +Z axis in world was `[-0.033, 0.007, -0.999]`, which confirms the camera is looking down rather than up.
+- The post-move RGB image still contained the red box, with `13924` red-mask pixels.
+
+## Main Camera Merge Runtime Pass
 
 Confirmed in the 2026-05-11 runtime pass:
 
@@ -179,13 +219,15 @@ Implemented:
 - simulated detection and box-pose fallbacks are disabled by default.
 - explicit `scan` command moves to a configured Cartesian scan pose when one is present, otherwise it moves to `observation_joints`.
 - current merged config uses `observation_joints` for scan because the main-branch camera fix was verified with that pose.
-- above-box commands use a fixed downward Link6 orientation.
+- above-box commands use a fixed downward Link6 orientation and compensate the wrist-camera offset from `Link6`.
+- above-box commands add `0.25 m` extra gripper clearance above the original camera safety height.
+- color commands skip redundant scan motion when the current joints are already close to `observation_joints`.
 - optional Cartesian scan config remains supported in code for debugging, but it is not the current default.
 
 Verified:
 
 - `scan` moved to `observation_joints`.
-- Red detected at world `(0.4543, -0.2395, 0.0501)` and moved above to `z=0.300`; controller status `3`.
+- Red detected at world `(0.4543, -0.2395, 0.0501)` and moved above; latest high-clearance run left the camera frame near `(0.4581, -0.2404, 0.5348)` with optical +Z `[-0.0319, 0.0069, -0.9995]`; controller status `3`.
 - Yellow detected at world `(0.5513, 0.0019, 0.0500)` and moved above to `z=0.300`; controller status `3`.
 - Green detected at world `(0.4545, 0.2446, 0.0500)` and moved above to `z=0.300`; controller status `3`.
 - A direct PTY run accepted typed `red` at the `cr5>` prompt and again detected red at world `(0.4544, -0.2395, 0.0501)` before moving above it; controller status `3`.

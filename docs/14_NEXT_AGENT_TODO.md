@@ -31,6 +31,9 @@ Confirmed on 2026-05-11:
 - RGB sampling from scan contained red/yellow/green pixels.
 - One-shot detections passed for red, yellow, and green at tabletop height.
 - Topic-command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller.
+- A later red-command pass fixed and verified above-box wrist-camera orientation: after `Move above red.`, the camera optical +Z axis was `[-0.033, 0.007, -0.999]` in `world`.
+- The latest red-command pass added an extra `0.25 m` gripper-clearance margin and verified the final camera frame near `world z=0.535`.
+- The latest red-command pass also skipped the redundant post-scan observation trajectory and sent the above-red trajectory about `0.5 s` after receiving the color command.
 - Simulated motion/detection fallbacks were disabled and unused.
 - `home` returned to near-zero launch/home joints.
 
@@ -72,11 +75,18 @@ Current scan config in `cr5_ws/src/cr5_color_pointing/config/demo.yaml`:
 
 ```yaml
 scan_target_link: wrist_rgbd_camera_optical_frame
+above_box_extra_clearance: 0.25
 observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
-above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+scan_joint_tolerance: 0.035
+above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+center_camera_over_box: true
 ```
 
 The command node still supports optional Cartesian scan config if `scan_position` and `scan_orientation_xyzw` are added back, but the accepted default uses `observation_joints`.
+
+Above-box moves now compensate for the fixed `Link6 -> wrist_rgbd_camera_optical_frame` offset so the camera frame, not just `Link6`, stays centered over the selected cube.
+
+Color commands now skip the scan trajectory when the current joint state is already within `0.035 rad` of `observation_joints`.
 
 Latest scan TF sample:
 

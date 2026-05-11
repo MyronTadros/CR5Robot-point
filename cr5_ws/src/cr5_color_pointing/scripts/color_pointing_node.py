@@ -30,7 +30,12 @@ class ColorPointingNode(object):
         self.group_name = rospy.get_param("~moveit/planning_group", "cr5_arm")
         self.end_effector_link = rospy.get_param("~moveit/end_effector_link", "Link6")
         self.configured_frame = rospy.get_param("~frames/planning_frame", "world")
+        self.camera_frame = rospy.get_param("~frames/camera_frame", "wrist_rgbd_camera_optical_frame")
         self.safety_height = float(rospy.get_param("~motion/safety_height", 0.25))
+        self.above_box_extra_clearance = float(rospy.get_param("~motion/above_box_extra_clearance", 0.25))
+        if self.above_box_extra_clearance < 0.0:
+            rospy.logwarn("Negative above_box_extra_clearance requested; using 0.0 instead.")
+            self.above_box_extra_clearance = 0.0
         self.ground_plane_z = float(rospy.get_param("~scene/ground_plane_z", 0.0))
         self.cube_size = float(rospy.get_param("~scene/cube_size", 0.05))
         self.max_tabletop_detection_z = float(rospy.get_param("~scene/max_tabletop_detection_z", 0.20))
@@ -44,11 +49,13 @@ class ColorPointingNode(object):
         self.scan_orientation = rospy.get_param("~motion/scan_orientation_xyzw", None)
         self.above_box_orientation = rospy.get_param(
             "~motion/above_box_orientation_xyzw",
-            self.scan_orientation or [0.0, 0.0, 1.0, 0.0],
+            self.scan_orientation or [0.7071068, -0.7071068, 0.0, 0.0],
         )
+        self.center_camera_over_box = bool(rospy.get_param("~motion/center_camera_over_box", True))
         self.scan_link6_position = rospy.get_param("~motion/scan_link6_position", None)
         self.scan_link6_orientation = rospy.get_param("~motion/scan_link6_orientation_xyzw", None)
         self.observation_joints = rospy.get_param("~motion/observation_joints", [0.0, -0.8, 1.2, 0.0, 1.1, 0.0])
+        self.scan_joint_tolerance = float(rospy.get_param("~motion/scan_joint_tolerance", 0.035))
         self.home_state = rospy.get_param("~motion/home_state", "home")
         self.home_joints = rospy.get_param("~motion/home_joints", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.execution_mode = rospy.get_param("~motion/execution_mode", "auto").lower()
@@ -305,9 +312,22 @@ class ColorPointingNode(object):
         if len(self.observation_joints) != 6:
             rospy.logerr("Observation joint list must contain 6 values.")
             return False
-        if not self._prepare_for_planning("observation pose"):
-            return False
         joints = [float(v) for v in self.observation_joints]
+        if not self._wait_for_current_joint_state("observation pose"):
+            return False
+        current_joints, _stamp = self._latest_joint_state()
+        if self._joints_close(current_joints, joints, self.scan_joint_tolerance):
+            max_error = max(self._joint_abs_errors(current_joints, joints))
+            self.last_commanded_joints = current_joints
+            rospy.loginfo(
+                "Already within %.3f rad of observation_joints; skipping redundant scan move "
+                "(max joint error %.4f rad).",
+                self.scan_joint_tolerance,
+                max_error,
+            )
+            return True
+        if not self._prepare_for_planning("observation pose", wait_for_joint_state=False):
+            return False
         try:
             self.group.set_joint_value_target(joints)
         except Exception as exc:
@@ -332,26 +352,97 @@ class ColorPointingNode(object):
         return self._plan_and_send_to_controller("home", fallback_joints=joints)
 
     def _make_above_box_pose(self, target_point):
-        min_clearance_z = self.ground_plane_z + self.cube_size + self.safety_height
+        min_clearance_z = self._minimum_above_box_camera_z()
         orientation = self.above_box_orientation
         if len(orientation) != 4:
-            rospy.logwarn("Invalid above-box orientation; using downward Link6 orientation.")
-            orientation = [0.0, 0.0, 1.0, 0.0]
+            rospy.logwarn("Invalid above-box orientation; using downward wrist-camera orientation.")
+            orientation = [0.7071068, -0.7071068, 0.0, 0.0]
+        orientation = self._normalize_quaternion(orientation)
+
+        desired_camera_position = [
+            target_point.point.x,
+            target_point.point.y,
+            min_clearance_z,
+        ]
+        link6_position = list(desired_camera_position)
+        if self.center_camera_over_box:
+            camera_offset = self._camera_offset_in_end_effector()
+            world_offset = self._rotate_vector_by_quaternion(camera_offset, orientation)
+            link6_position = [
+                desired_camera_position[0] - world_offset[0],
+                desired_camera_position[1] - world_offset[1],
+                desired_camera_position[2] - world_offset[2],
+            ]
+            rospy.loginfo(
+                "Centering %s above box: camera target x=%.3f y=%.3f z=%.3f, "
+                "%s target x=%.3f y=%.3f z=%.3f.",
+                self.camera_frame,
+                desired_camera_position[0],
+                desired_camera_position[1],
+                desired_camera_position[2],
+                self.end_effector_link,
+                link6_position[0],
+                link6_position[1],
+                link6_position[2],
+            )
 
         pose = PoseStamped()
         pose.header.stamp = rospy.Time.now()
         pose.header.frame_id = target_point.header.frame_id or self.target_frame
-        pose.pose.position.x = target_point.point.x
-        pose.pose.position.y = target_point.point.y
-        pose.pose.position.z = min_clearance_z
+        pose.pose.position.x = link6_position[0]
+        pose.pose.position.y = link6_position[1]
+        pose.pose.position.z = link6_position[2]
         pose.pose.orientation.x = float(orientation[0])
         pose.pose.orientation.y = float(orientation[1])
         pose.pose.orientation.z = float(orientation[2])
         pose.pose.orientation.w = float(orientation[3])
         return pose
 
+    def _normalize_quaternion(self, orientation):
+        values = [float(v) for v in orientation]
+        norm = sum(v * v for v in values) ** 0.5
+        if norm < 1e-9:
+            rospy.logwarn("Above-box orientation has near-zero norm; using downward wrist-camera orientation.")
+            return [0.7071068, -0.7071068, 0.0, 0.0]
+        return [v / norm for v in values]
+
+    def _camera_offset_in_end_effector(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.end_effector_link,
+                self.camera_frame,
+                rospy.Time(0),
+                rospy.Duration(1.0),
+            )
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as exc:
+            rospy.logwarn(
+                "Could not lookup %s -> %s camera offset; using zero offset: %s",
+                self.end_effector_link,
+                self.camera_frame,
+                exc,
+            )
+            return [0.0, 0.0, 0.0]
+
+        return [
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+            transform.transform.translation.z,
+        ]
+
+    def _rotate_vector_by_quaternion(self, vector, orientation):
+        qx, qy, qz, qw = orientation
+        vx, vy, vz = [float(v) for v in vector]
+        tx = 2.0 * (qy * vz - qz * vy)
+        ty = 2.0 * (qz * vx - qx * vz)
+        tz = 2.0 * (qx * vy - qy * vx)
+        return [
+            vx + qw * tx + (qy * tz - qz * ty),
+            vy + qw * ty + (qz * tx - qx * tz),
+            vz + qw * tz + (qx * ty - qy * tx),
+        ]
+
     def move_to_pose(self, pose):
-        if pose.pose.position.z < self.ground_plane_z + self.cube_size + self.safety_height:
+        if pose.pose.position.z < self._minimum_above_box_camera_z():
             rospy.logerr("Refusing unsafe target z=%.3f.", pose.pose.position.z)
             return False
 
@@ -364,9 +455,12 @@ class ColorPointingNode(object):
             return False
         return self._plan_and_send_to_controller("pose target")
 
-    def _prepare_for_planning(self, label):
+    def _minimum_above_box_camera_z(self):
+        return self.ground_plane_z + self.cube_size + self.safety_height + self.above_box_extra_clearance
+
+    def _prepare_for_planning(self, label, wait_for_joint_state=True):
         self.group.clear_pose_targets()
-        if not self._wait_for_current_joint_state(label):
+        if wait_for_joint_state and not self._wait_for_current_joint_state(label):
             return False
         try:
             self.group.set_start_state_to_current_state()
@@ -374,6 +468,16 @@ class ColorPointingNode(object):
             rospy.logerr("Could not set MoveIt start state for %s: %s", label, exc)
             return False
         return True
+
+    def _joint_abs_errors(self, current, target):
+        if current is None or len(current) != len(target):
+            return [float("inf")]
+        return [abs(float(a) - float(b)) for a, b in zip(current, target)]
+
+    def _joints_close(self, current, target, tolerance):
+        if tolerance < 0.0:
+            return False
+        return max(self._joint_abs_errors(current, target)) <= tolerance
 
     def _plan_and_send_to_controller(self, label, fallback_joints=None):
         try:

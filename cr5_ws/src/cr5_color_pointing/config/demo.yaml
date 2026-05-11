@@ -16,12 +16,16 @@ motion:
   gazebo_model_name: robot
   gazebo_urdf_param: robot_description
   safety_height: 0.25
+  above_box_extra_clearance: 0.25
   scan_target_link: wrist_rgbd_camera_optical_frame
 
   # Scan must use this joint-space observation pose.
   # Do NOT use scan_position / scan_orientation here; those caused IK failure.
   observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
-  above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+  scan_joint_tolerance: 0.035
+  # Keep the merged wrist camera optical +Z axis pointing down at the box.
+  above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+  center_camera_over_box: true
   home_state: home
   home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   max_velocity_scaling: 0.2

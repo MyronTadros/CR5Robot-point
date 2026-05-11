@@ -10,8 +10,9 @@ The robot moves to an observation pose, detects a red, yellow, or green cube wit
 - Robot base and boxes sit on `z = 0`.
 - Cube size is `0.05 m`.
 - Cube center z is `0.025 m`.
-- The tool target stays at least `0.25 m` above the box.
+- Above-box camera targets use the original `0.25 m` safety height plus an extra `0.25 m` gripper-clearance margin.
 - `scan` moves to the configured joint-space observation pose, which places the merged wrist camera above the boxes and points the optical frame down toward the ground.
+- Color commands skip the scan move when the current joints are already within `0.035 rad` of the configured observation pose.
 
 ## Launch
 
@@ -103,7 +104,11 @@ Tune HSV thresholds in `config/color_thresholds.yaml`.
 Tune robot behavior in `config/demo.yaml`, especially:
 
 - `motion/observation_joints`
+- `motion/scan_joint_tolerance`
 - optional `motion/scan_position` and `motion/scan_orientation_xyzw` if Cartesian scan debugging is reintroduced
 - `motion/safety_height`
+- `motion/above_box_extra_clearance`
+- `motion/above_box_orientation_xyzw`
+- `motion/center_camera_over_box`
 - `scene/boxes`
 - camera topics and frames

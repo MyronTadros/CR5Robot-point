@@ -144,3 +144,51 @@ Keep `wrist_rgbd_camera_optical_frame` as the Gazebo plugin frame and retain the
 Reason:
 
 This camera geometry was runtime verified after the 2026-05-11 merge: scan images contained all three colored boxes, RGB-D detections transformed to tabletop-height points, and the full color command sequence completed with fallbacks disabled.
+
+## D012 - Keep Wrist Camera Down For Above-Box Moves
+
+Status: confirmed
+
+Decision:
+
+Use `above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]` for color moves and keep `motion/center_camera_over_box: true`.
+
+Reason:
+
+With the merged VX500-style wrist camera mount, the previous above-box orientation could place `Link6` above the cube while rotating the camera toward the sky. The new orientation keeps `wrist_rgbd_camera_optical_frame` pointing downward, and the centering option compensates for the fixed camera offset from `Link6` so the camera frame stays over the detected box.
+
+Runtime update:
+
+On 2026-05-11, `scan` followed by `Move above red.` completed through the real trajectory controller with simulated fallbacks disabled. The post-move camera frame was near `world x=0.452, y=-0.239, z=0.285`, optical +Z in world was `[-0.033, 0.007, -0.999]`, and the RGB image still contained the red box.
+
+## D013 - Add Real-Gripper Clearance For Above-Box Poses
+
+Status: confirmed
+
+Decision:
+
+Keep the original `motion/safety_height: 0.25` and add `motion/above_box_extra_clearance: 0.25` for final above-box camera targets.
+
+Reason:
+
+The physical bringup robot has a gripper at the end effector. The demo should leave additional room between the end-effector assembly and the boxes, so the final camera target is intentionally higher than the earlier simulation-only pose.
+
+Runtime update:
+
+On 2026-05-11, the high-clearance `Move above red.` target completed through the real simulation trajectory controller. The post-move camera frame was near `world x=0.458, y=-0.240, z=0.535`, about `0.25 m` higher than the previous above-red camera pose, and the camera optical +Z axis still pointed down.
+
+## D014 - Skip Redundant Scan Moves Before Color Detection
+
+Status: confirmed
+
+Decision:
+
+When `observation_joints` are the active scan behavior, skip the scan trajectory if live `/joint_states` are already within `motion/scan_joint_tolerance` of the scan joints.
+
+Reason:
+
+After an explicit `scan`, the next color command was spending a full single-point trajectory duration on a no-op scan move before detection. Skipping the no-op keeps the physical command flow responsive while preserving the rule that detection starts from the observation pose.
+
+Runtime update:
+
+On 2026-05-11, after `scan`, `Move above red.` skipped the redundant scan trajectory with max joint error `0.0186 rad` against a `0.035 rad` tolerance. Detection started immediately and the above-red trajectory was sent about `0.5 s` after the command was received.

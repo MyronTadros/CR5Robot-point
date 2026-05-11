@@ -144,4 +144,5 @@ Detection params:
 - Depth from scan is plausible for the ground-plane boxes, with center depth around `0.706 m`.
 - `detect_color_once.py` detects all three colors and transforms them to tabletop-height points in `dummy_link`.
 - The launched command node logs transformed tabletop-height points in `world`.
+- After the latest high-clearance `Move above red.`, the camera frame was near `world x=0.458, y=-0.240, z=0.535` with optical +Z `[-0.032, 0.007, -0.999]` in `world`, so the above-box pose keeps the wrist camera high and looking down instead of at the sky.
 - TF from `world`/`dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.
