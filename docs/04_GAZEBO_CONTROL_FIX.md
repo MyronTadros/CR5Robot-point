@@ -188,43 +188,44 @@ Reason:
 
 `unpause_after_controllers.py` waits for the controller manager and Gazebo unpause service, switches the stopped controllers to `running`, pauses again, sends a short initial hold goal through `cr5_joint_trajectory_controller/follow_joint_trajectory`, then unpauses physics.
 
-The current clean-baseline launch sets:
+The current merged launch sets:
 
 ```text
 initial_joint1..initial_joint6 = 0.0
-reset_initial_pose = false
+reset_initial_pose = true
 ```
 
-This avoids the earlier direct `set_model_configuration` startup reset while still testing the real trajectory controller hold path.
+The startup helper resets the model to the initial hold configuration, sends the initial hold trajectory, and then unpauses physics. This was runtime accepted in the 2026-05-11 merged test run.
 
 Gravity remains ON after unpausing.
 
 ## Validation Results
 
-Current session status:
+Latest merged runtime status:
 
 | Check | Result |
 | --- | --- |
 | Static config inspection | effort controller path implemented |
 | URDF XML and YAML syntax checks | passed |
 | `check_urdf` tree check | passed; `world -> dummy_link -> base_link -> Link1 -> ... -> Link6 -> wrist_rgbd_camera_link -> wrist_rgbd_camera_optical_frame` |
-| Docker image/container | restored and running |
+| Docker image/container | present; `cr5ros` started successfully |
 | `catkin_make -DCMAKE_BUILD_TYPE=Release` | passed |
 | Gazebo gravity/controller checks | gravity ON; effort controller running and claiming all six `EffortJointInterface` joints |
 | Wrist camera topics | present after Gazebo launch |
-| MoveIt action test | not attempted in the clean-baseline run because the pre-execute hold already failed |
-| Physical Gazebo acceptance | failed; do not claim fixed |
+| Startup hold | completed; Gazebo physics unpaused |
+| Color command sequence | `red -> scan -> yellow -> scan -> green -> home` completed through the trajectory controller |
+| Physical Gazebo acceptance | accepted for the current student demo smoke test |
 
-Observed failed runtime modes:
+Historical failed runtime modes:
 
 - The clean baseline loads the correct URDF, controller YAML, and MoveIt action mapping.
 - `cr5_joint_trajectory_controller` runs as `effort_controllers/JointTrajectoryController` and claims `joint1` through `joint6`.
 - The initial hold trajectory aborted with action state `4`.
 - `/joint_states` stayed finite, but velocities were unstable/high and several efforts saturated, especially wrist and elbow-related joints.
 
-Conclusion:
+Current conclusion:
 
-The previous position-controller fix and the current clean effort-controller startup fixes are not sufficient acceptance evidence. The remaining blocker is Gazebo physics/controller dynamics under gravity, not XML parsing, controller loading, resource claiming, camera topics, or MoveIt action namespace mapping.
+The current merged setup is sufficient for the color-pointing demo smoke test: Gazebo holds under gravity, MoveIt sends trajectories through the real controller action, perception detects tabletop-height colored boxes, and the command sequence returns home with fallbacks disabled.
 
 ## Validation Commands
 

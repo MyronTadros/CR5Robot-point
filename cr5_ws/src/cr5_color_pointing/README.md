@@ -11,7 +11,7 @@ The robot moves to an observation pose, detects a red, yellow, or green cube wit
 - Cube size is `0.05 m`.
 - Cube center z is `0.025 m`.
 - The tool target stays at least `0.25 m` above the box.
-- `scan` moves `Link6` to a Cartesian pose that places the wrist camera above the yellow box and points the camera down toward the ground.
+- `scan` moves to the configured joint-space observation pose, which places the merged wrist camera above the boxes and points the optical frame down toward the ground.
 
 ## Launch
 
@@ -102,9 +102,8 @@ Tune HSV thresholds in `config/color_thresholds.yaml`.
 
 Tune robot behavior in `config/demo.yaml`, especially:
 
-- `motion/scan_link6_position`
-- `motion/scan_link6_orientation_xyzw`
 - `motion/observation_joints`
+- optional `motion/scan_position` and `motion/scan_orientation_xyzw` if Cartesian scan debugging is reintroduced
 - `motion/safety_height`
 - `scene/boxes`
 - camera topics and frames

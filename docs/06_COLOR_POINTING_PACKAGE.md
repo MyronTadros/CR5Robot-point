@@ -48,16 +48,16 @@ From `config/demo.yaml`:
 | RGB topic | `/wrist_rgbd/rgb/image_raw` |
 | Depth topic | `/wrist_rgbd/depth/image_raw` |
 | CameraInfo topic | `/wrist_rgbd/rgb/camera_info` |
-| Planning frame | `dummy_link` |
+| Planning frame | `world` |
 | Camera frame | `wrist_rgbd_camera_optical_frame` |
 | MoveIt group | `cr5_arm` |
 | End link | `Link6` |
 | Safety height | `0.25 m` |
 | Cube size | `0.05 m` |
-| Scan Link6 position | `[0.55, 0.12, 0.77]` |
-| Scan Link6 orientation xyzw | `[0.0, 0.0, 1.0, 0.0]` |
+| Scan target link | `wrist_rgbd_camera_optical_frame` |
+| Scan behavior | configured `observation_joints` |
 | Above-box Link6 orientation xyzw | `[0.0, 0.0, 1.0, 0.0]` |
-| Observation/scan joints | `[3.13, -0.8, 1.2, 0.0, 1.1, 0.0]` |
+| Observation/scan joints | `[0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]` |
 | Home state | `home` |
 | Command topic | `/cr5_color_pointing/command` |
 | Execution mode | `moveit` |
@@ -100,21 +100,21 @@ Do not paste the full `docker exec ... rostopic pub ...` command at the `cr5>` p
 
 ## Scan Pose
 
-`scan` uses a Cartesian MoveIt target instead of a guessed joint pose. The target places `Link6` near:
+`scan` currently uses the configured joint-space observation pose. In the latest verification run, it placed `wrist_rgbd_camera_optical_frame` near:
 
 ```text
-x=0.55, y=0.12, z=0.77
+x=0.525, y=0.018, z=0.704 in world
 ```
 
-with orientation:
+with the optical frame mostly pointing down toward the boxes:
 
 ```text
-xyzw=[0.0, 0.0, 1.0, 0.0]
+RPY about [176 deg, -2 deg, -90 deg]
 ```
 
-Because the wrist camera is fixed to `Link6` with a small side/up standoff, this puts the camera roughly above the yellow box and points the optical axis down toward the ground where the boxes sit. The same downward Link6 orientation is used for above-box pointing targets so MoveIt does not choose arbitrary wrist orientations.
+The command node still supports a configured Cartesian scan target if `motion/scan_position` and `motion/scan_orientation_xyzw` are reintroduced, but the current default intentionally uses `observation_joints` because that is the pose verified with the merged camera geometry.
 
-The older `motion/observation_joints` value remains as a fallback if the Cartesian scan pose is removed from config.
+The same downward Link6 orientation is used for above-box pointing targets so MoveIt does not choose arbitrary wrist orientations.
 
 ## Fallback Policy
 
@@ -164,9 +164,10 @@ Run command node:
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing color_pointing.launch'
 ```
 
-## Needs Verification
+## Latest Verification
 
-- Rebuild after the Gazebo control fix.
-- Re-test `detect_color_once.py red/yellow/green` from a settled observation pose.
-- Re-test interactive commands.
-- Tune the observation pose/camera view so the wrist camera sees the boxes without fallback.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `color_pointing_node.py` and `detect_color_once.py` are executable for `roslaunch`/`rosrun`.
+- `detect_color_once.py red/yellow/green` passed from scan with tabletop-height points.
+- Full topic-command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real MoveIt/Gazebo trajectory controller.
+- Simulated motion/detection fallbacks remained disabled and unused.

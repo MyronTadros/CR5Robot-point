@@ -243,24 +243,28 @@
     because the color-pointing demo depends on /wrist_rgbd RGB and depth topics.
   -->
   <link name="wrist_rgbd_camera_link">
-    <!-- VX500-style camera body.
-         Visual/sensor only for Gazebo stability: no collision geometry and tiny inertial.
-         The real VX500 mass should be considered for real TCP/tool setup, but the
-         Gazebo CR5 effort controller is not robust enough to use camera mass/collision
-         as part of the arm dynamics. -->
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <!-- Body is behind the front optical plane; +Z is view direction in this frame. -->
+      <origin xyz="0 0 -0.0235" rpy="0 0 0" />
       <geometry>
-        <box size="0.0652 0.047 0.0652" />
+        <box size="0.0652 0.0652 0.047" />
       </geometry>
-      <material name="vx500_dark_gray">
-        <color rgba="0.05 0.05 0.05 1.0" />
+      <material name="vx500_white">
+        <color rgba="0.92 0.92 0.88 1" />
       </material>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.0235" rpy="0 0 0" />
+      <geometry>
+        <box size="0.0652 0.0652 0.047" />
+      </geometry>
+    </collision>
     <inertial>
-      <mass value="0.001" />
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7" />
+      <!-- VX500 mass is 520 g excluding flange; COM approximated at the body center. -->
+      <origin xyz="0 0 -0.0235" rpy="0 0 0" />
+      <mass value="0.52" />
+      <!-- Box inertia for 65.2 mm x 65.2 mm x 47 mm, m=0.52 kg. -->
+      <inertia ixx="0.000280" ixy="0" ixz="0" iyy="0.000280" iyz="0" izz="0.000368" />
     </inertial>
   </link>
 
@@ -270,10 +274,16 @@
     <child link="wrist_rgbd_camera_link" />
   </joint>
 
-  <link name="wrist_rgbd_camera_optical_frame" />
+  <link name="wrist_rgbd_camera_optical_frame">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.001" />
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6" />
+    </inertial>
+  </link>
 
   <joint name="wrist_rgbd_camera_optical_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
     <parent link="wrist_rgbd_camera_link" />
     <child link="wrist_rgbd_camera_optical_frame" />
   </joint>
@@ -397,7 +407,7 @@
     <material>Gazebo/White</material>
   </gazebo>
 
-  <gazebo reference="wrist_rgbd_camera_link">
+  <gazebo reference="wrist_rgbd_camera_optical_frame">
     <selfCollide>false</selfCollide>
     <gravity>true</gravity>
     <sensor type="depth" name="wrist_rgbd_camera">

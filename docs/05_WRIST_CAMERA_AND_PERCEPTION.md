@@ -24,10 +24,17 @@ The camera is fixed to:
 ```text
 parent: Link6
 child:  wrist_rgbd_camera_link
-origin: xyz="0 0.12 0.08" rpy="0 1.5708 0"
+origin: xyz="0 -0.055 0" rpy="1.5708 -1.5708 0"
 ```
 
-The `0.12 m` side standoff keeps the simulated wrist camera attached near `Link6` while clearing the wrist geometry from the camera ray. The `wrist_rgbd_camera_optical_frame` uses the ROS camera convention: z forward, x right, y down.
+The merged camera geometry approximates a VX500-style wrist camera mounted at the CR5 end flange. The depth sensor is attached to `wrist_rgbd_camera_link`, while the Gazebo plugin publishes `frameName=wrist_rgbd_camera_optical_frame`. The optical frame uses the ROS camera convention: z forward, x right, y down.
+
+The optical-frame fixed joint currently uses:
+
+```text
+wrist_rgbd_camera_link -> wrist_rgbd_camera_optical_frame
+origin: xyz="0 0 0" rpy="-1.5708 0 -1.5708"
+```
 
 ## Expected Topics
 
@@ -133,6 +140,8 @@ Detection params:
 
 - Wrist topics publish after `run-cr5-gazebo`.
 - From `scan`, the RGB image contains red, yellow, and green boxes.
-- Depth from scan is plausible for the ground-plane boxes, with median depth around `0.83 m`.
+- Latest image sample after scan: red `2418` broad-mask pixels, yellow `1806`, green `2463`.
+- Depth from scan is plausible for the ground-plane boxes, with center depth around `0.706 m`.
 - `detect_color_once.py` detects all three colors and transforms them to tabletop-height points in `dummy_link`.
-- TF from `dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.
+- The launched command node logs transformed tabletop-height points in `world`.
+- TF from `world`/`dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.

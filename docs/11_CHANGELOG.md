@@ -2,13 +2,57 @@
 
 Meaningful project changes should be recorded here.
 
-## 2026-05-10 - Wrist Camera Scan/Home Runtime Repair
+## 2026-05-11 - Main Camera Merge And Color Sequence Verification
 
-Status: implemented, build passed, runtime accepted
+Status: merged, build passed, runtime accepted
 
 Changes:
 
-- Side-mounted the Gazebo wrist RGB-D camera near `Link6` at `xyz="0 0.12 0.08"` so the camera remains attached to the wrist while no longer looking through wrist geometry.
+- Merged `main` into `fix/camera-position-fix`.
+- Resolved the Gazebo camera URDF conflict in favor of the main-branch VX500-style wrist mount: `Link6 -> wrist_rgbd_camera_link` at `xyz="0 -0.055 0"` and `rpy="1.5708 -1.5708 0"`.
+- Kept the branch execution hardening in `color_pointing_node.py`: fresh `/joint_states` checks, strict controller result handling, configured home joints, and real controller-state tracking.
+- Kept optional Cartesian scan support in code, but the current config uses the main-branch `observation_joints` scan pose.
+- Marked `color_pointing_node.py` and `detect_color_once.py` executable so `roslaunch` and `rosrun` can start them from the source package.
+
+Validation:
+
+- Python compile, YAML load, XML parse, and `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched with gravity ON; `joint_state_controller` and `cr5_joint_trajectory_controller` were running.
+- Wrist RGB-D topics published.
+- Colored boxes spawned successfully.
+- `scan` moved through the trajectory controller with status `3`.
+- Camera image from scan contained red, yellow, and green pixels; center depth was about `0.706 m`.
+- `detect_color_once.py red/yellow/green` detected tabletop-height points.
+- Topic-command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller; all observed color/scan/home goals reported status `3`.
+- Simulated motion/detection fallbacks were disabled and unused.
+
+## 2026-05-10 - Wrist RGB-D Depth Frame Alignment
+
+Status: runtime verified
+
+Changes:
+
+- Restored the standard ROS optical-frame fixed rotation on `wrist_rgbd_camera_optical_joint`.
+- Kept the Gazebo depth sensor attached to the physical `wrist_rgbd_camera_link` while the plugin publishes `frameName=wrist_rgbd_camera_optical_frame`; this matches Gazebo camera sensor ray convention with ROS optical camera projection.
+- Kept `/wrist_rgbd/...` topics unchanged.
+- Added detection debug logging for color, pixel, median depth, camera info frame, camera-frame XYZ, and transformed target-frame XYZ.
+
+Validation:
+
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- Runtime command tests through `/cr5_color_pointing/command` passed after spawning colored boxes.
+- A direct PTY CLI test also accepted typed `red` at the `cr5>` prompt and moved above red successfully.
+- Red: pixel `(520,256)`, depth `0.6644`, world `(0.4543, -0.2395, 0.0501)`, moved above to `z=0.300`, controller status `3`.
+- Yellow: pixel `(318,176)`, depth `0.6505`, world `(0.5513, 0.0019, 0.0500)`, moved above to `z=0.300`, controller status `3`.
+- Green: pixel `(112,260)`, depth `0.6510`, world `(0.4545, 0.2446, 0.0500)`, moved above to `z=0.300`, controller status `3`.
+
+## 2026-05-10 - Wrist Camera Scan/Home Runtime Repair
+
+Status: implemented, build passed, runtime accepted on branch before the main-camera merge
+
+Changes:
+
+- Side-mounted the Gazebo wrist RGB-D camera near `Link6` at `xyz="0 0.12 0.08"` so the camera remained attached to the wrist while no longer looking through wrist geometry.
 - Updated `scan` to target `Link6` at `[0.55, 0.12, 0.77]` with downward orientation `[0.0, 0.0, 1.0, 0.0]`.
 - Added a fixed downward above-box orientation so red/yellow/green moves keep a predictable wrist pose.
 - Changed `home` behavior to use configured launch/home joints directly.
@@ -22,6 +66,22 @@ Validation:
 - Colored boxes spawned; scan image contained red, yellow, and green pixels with plausible depth.
 - `detect_color_once.py` detected all three colors at tabletop height.
 - Runtime sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller with simulated fallbacks disabled.
+
+## 2026-05-09 - Gazebo/RViz Launch Error Diagnosis
+
+Status: diagnosed, helper permission fixed
+
+Changes:
+
+- Diagnosed a `run-cr5-gazebo` failure where RViz was being started by `demo_gazebo.launch`, but the active ROS/Gazebo session was already stale/running.
+- Confirmed launch output included `SpawnModel: Failure - entity already exists`, duplicate `robot_state_publisher` shutdowns, and a second RViz process.
+- Fixed `cr5_moveit/scripts/unpause_after_controllers.py` permissions so roslaunch can execute the controller startup helper.
+- Confirmed `rosrun cr5_moveit unpause_after_controllers.py` now resolves and starts the helper instead of reporting it as non-executable.
+
+Notes:
+
+- The existing launch from the user terminal was left running.
+- Follow-up completed later: current docs record that `gazebo.launch` sets `reset_initial_pose=true`.
 
 ## 2026-05-09 - Next Agent TODO Handoff
 

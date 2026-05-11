@@ -100,7 +100,7 @@ This avoids mixing simulation-only controller infrastructure into the normal dis
 
 ## D009 - Use Effort Trajectory Control In Gazebo
 
-Status: provisional; not accepted yet
+Status: confirmed for current simulation demo
 
 Decision:
 
@@ -112,7 +112,7 @@ The position-interface Gazebo path exposed a trajectory action but was not suffi
 
 Runtime update:
 
-Effort control now loads and claims the joints in the clean Gazebo baseline. The clean URDF preserves the original CR5 chain, normal joint bounds, and CAD inertials while adding the Gazebo-only anchor, effort transmissions, Gazebo ROS control plugin, and wrist camera. Physical acceptance still fails: the initial hold trajectory aborted with finite but unstable joint feedback and saturated efforts. Continue Gazebo dynamics/controller tuning before returning to camera or color pointing work.
+Effort control loads and claims the joints in the merged Gazebo baseline. The current URDF preserves the original CR5 chain, normal joint bounds, and CAD inertials while adding the Gazebo-only anchor, effort transmissions, Gazebo ROS control plugin, and wrist camera. The 2026-05-11 runtime pass accepted this setup for the color-pointing demo: startup completed with gravity ON, scan/color/home trajectories reported controller status `3`, and `home` returned to near-zero joints.
 
 ## D010 - Documentation Must Track Behavior
 
@@ -125,3 +125,22 @@ Every future behavior change should update relevant docs, changelog, current sta
 Reason:
 
 This project depends on many compatibility details that are easy to forget between sessions.
+
+## D011 - Use Main-Branch VX500-Style Wrist Camera Mount
+
+Status: confirmed
+
+Decision:
+
+Use the merged main-branch Gazebo wrist camera transform from `Link6` to `wrist_rgbd_camera_link`:
+
+```text
+xyz="0 -0.055 0"
+rpy="1.5708 -1.5708 0"
+```
+
+Keep `wrist_rgbd_camera_optical_frame` as the Gazebo plugin frame and retain the standard ROS optical-frame fixed rotation.
+
+Reason:
+
+This camera geometry was runtime verified after the 2026-05-11 merge: scan images contained all three colored boxes, RGB-D detections transformed to tabletop-height points, and the full color command sequence completed with fallbacks disabled.

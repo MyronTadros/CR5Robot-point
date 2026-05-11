@@ -52,8 +52,8 @@ Confirmed working or recently verified:
 - Gazebo controllers load as `effort_controllers/JointTrajectoryController`.
 - Startup hold now completes after loosening controller abort tolerances and adding strong Gazebo-only passive joint damping.
 - The robot can settle at startup with near-zero joint velocities.
-- The wrist RGB-D camera is side-mounted near `Link6` with a small `0.12 m` side standoff and `0.08 m` vertical standoff to avoid self-occluding on the wrist.
-- The `scan` command positions the wrist camera above the yellow-box area at about `x=0.57, y=0.01, z=0.83`, pointing downward.
+- The wrist RGB-D camera uses the merged VX500-style wrist mount at `Link6 -> wrist_rgbd_camera_link` with `xyz="0 -0.055 0"` and `rpy="1.5708 -1.5708 0"`.
+- The `scan` command uses the configured `observation_joints` pose; in the latest run the optical frame was around `world x=0.525, y=0.018, z=0.704`, pointing down at the boxes.
 - Wrist RGB-D camera topics exist.
 - Colored boxes spawn successfully.
 - HSV + RGB-D detection works for red, yellow, and green from scan.
@@ -397,14 +397,14 @@ http://localhost:8080/stream?topic=/wrist_rgbd/rgb/image_raw
 Camera TF check:
 
 ```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_optical_frame'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo world wrist_rgbd_camera_optical_frame'
 ```
 
 After `scan`, a good pose recently looked like:
 
 ```text
-translation about [0.58, 0.01, 0.83]
-RPY about [179 deg, 3 deg, 0 deg]
+translation about [0.525, 0.018, 0.704]
+RPY about [176 deg, -2 deg, -90 deg]
 ```
 
 That means the optical frame is high above the boxes and pointing mostly down.
@@ -482,7 +482,7 @@ docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Return home.'\''"'
 ```
 
-Important current note: `scan` movement works better now, but HSV detection is still not fully working because the latest camera image had no saturated red/yellow/green pixels. Use the detection checks below before trusting movement-to-color commands.
+Latest verification note: after the main-camera merge, the scan image contained red, yellow, and green pixels, one-shot detections passed for all three colors, and the full `red -> scan -> yellow -> scan -> green -> home` command sequence completed through the real trajectory controller with fallbacks disabled.
 
 ## Color Detection Checks
 
@@ -498,7 +498,7 @@ Accepted detection should report:
 
 - blob found,
 - valid depth,
-- transformed point in `dummy_link`,
+- transformed point near the tabletop. The standalone `detect_color_once.py` debug node reports `dummy_link`; the launched command node uses its configured planning frame and logs `world` points.
 - z near the tabletop, roughly `0.0` to `0.20`.
 
 Bad signs:
@@ -569,7 +569,7 @@ docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosservice cal
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosservice call /gazebo/get_physics_properties | grep -A4 gravity'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic list | grep wrist_rgbd'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''scan'\''"'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_optical_frame'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo world wrist_rgbd_camera_optical_frame'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py red'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py yellow'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py green'
@@ -740,15 +740,15 @@ Run:
 
 ```bash
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''scan'\''"'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_optical_frame'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo world wrist_rgbd_camera_optical_frame'
 ```
 
 Expected scan is near:
 
 ```text
-x: 0.55 to 0.60
-y: near 0.0
-z: around 0.8
+x: around 0.525
+y: around 0.02
+z: around 0.70
 orientation: optical z mostly downward
 ```
 
@@ -761,9 +761,8 @@ cr5_ws/src/cr5_color_pointing/config/demo.yaml
 Current scan settings:
 
 ```yaml
-scan_target_link: Link6
-scan_position: [0.55, 0.12, 0.77]
-scan_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
+scan_target_link: wrist_rgbd_camera_optical_frame
+observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
 above_box_orientation_xyzw: [0.0, 0.0, 1.0, 0.0]
 ```
 
