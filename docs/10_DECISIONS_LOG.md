@@ -212,3 +212,59 @@ Runtime verification on 2026-05-17 showed three separate simulation issues that 
 Runtime update:
 
 With the fixed joint preserved, Gazebo plugin paths exported, and co-located RGB/depth sensors at the lens/front face, the 2026-05-17 pass published wrist RGB-D topics and completed `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` through MoveIt/Gazebo.
+
+## D016 - Real Hardware Uses Dobot Driver Preflight And External VX500 Points
+
+Status: implemented, static validation passed, physical runtime pending
+
+Decision:
+
+Use the Dobot ROS driver action `/follow_joint_trajectory/follow_joint_trajectory` for real CR5 motion, guarded by robot-status preflight checks. Keep direct RGB-D HSV detection for real RGB-D cameras, and add a `point_topic` perception mode for calibrated smart-camera detections.
+
+Reason:
+
+The real CR5 driver already exposes joint states, robot status, enable/clear/speed services, and a FollowJointTrajectory action. The provided VX500 guide describes a mono smart camera, so the existing RGB-D color-threshold detector cannot directly classify red/yellow/green from VX500 images. A `PointStamped` bridge lets VX500 calibrated output feed the same MoveIt pointing behavior without pretending the mono camera is RGB-D.
+
+## D017 - Keep Dobot Feedback And Motion TCP Sockets Separate
+
+Status: confirmed
+
+Decision:
+
+Use three Dobot TCP connections in the ROS driver:
+
+```text
+29999 dashboard/services
+30004 realtime feedback
+29999 motion commands on the tested CR5A controller
+```
+
+Reason:
+
+The real controller streamed valid 1440-byte realtime feedback on `30004`, but sending MoveIt `ServoJ` trajectory points to that same socket did not move the robot. Port `30003` remained refused on the tested CR5A controller even in TCP mode, while dashboard port `29999` accepted a no-op `ServoJ` command. The driver keeps the motion socket configurable and drains command responses when motion is routed through the dashboard socket.
+
+Dashboard service calls also read the controller response now, so command rejection such as `Control Mode Is Not Tcp` is surfaced as `res: -1`.
+
+## D018 - Use A Gazebo Shadow, Not Full Simulation, During Hardware Demos
+
+Status: confirmed
+
+Decision:
+
+During physical robot demos, use `cr5_color_pointing hardware_gazebo_shadow.launch` for Gazebo visualization instead of `run-cr5-gazebo`.
+
+Reason:
+
+The normal Gazebo demo launch is a full simulation stack: it starts a simulated robot, Gazebo controllers, MoveIt, `robot_state_publisher`, and simulated `/joint_states`. Running that beside hardware control causes node/topic/controller conflicts and does not represent the physical robot. The shadow launch starts paused Gazebo, spawns a display-only robot model, and mirrors the real Dobot driver's `/joint_states` into that model.
+
+## D019 - Stream Interpolated ServoJ Commands For Hardware Trajectories
+
+Status: confirmed
+
+Decision:
+
+Replay real hardware `FollowJointTrajectory` goals by interpolating the timed MoveIt trajectory and streaming `ServoJ` at `0.05 s`.
+
+Reason:
+
+The previous driver sent one sparse trajectory waypoint per timer tick. On the physical controller that produced visible chunked motion. Interpolated streaming keeps the same MoveIt plan and final target while feeding the controller smaller, more frequent joint targets.

@@ -20,6 +20,8 @@
 #include <thread>
 #include <mutex>
 #include <cstring>
+#include <atomic>
+#include <chrono>
 #include <dobot_bringup/tcp_socket.h>
 
 #pragma pack(push, 1)
@@ -81,27 +83,41 @@ protected:
 
 private:
     std::mutex mutex_;
+    std::mutex command_mutex_;
     double current_joint_[6];
     double tool_vector_[6];
     RealTimeData real_time_data_;
     std::atomic<bool> is_running_;
     std::unique_ptr<std::thread> thread_;
-    std::shared_ptr<TcpClient> real_time_tcp_;
+    std::shared_ptr<TcpClient> feedback_tcp_;
+    std::shared_ptr<TcpClient> motion_tcp_;
     std::shared_ptr<TcpClient> dash_board_tcp_;
+    bool motion_uses_dashboard_;
 
 public:
-    explicit CR5Commander(const std::string& ip)
+    explicit CR5Commander(const std::string& ip,
+                          uint16_t feedback_port = 30004,
+                          uint16_t dashboard_port = 29999,
+                          uint16_t motion_port = 30003)
         : current_joint_{}, tool_vector_{}, real_time_data_{}, is_running_(false)
     {
         is_running_ = false;
-        real_time_tcp_ = std::make_shared<TcpClient>(ip, 30003);
-        dash_board_tcp_ = std::make_shared<TcpClient>(ip, 29999);
+        feedback_tcp_ = std::make_shared<TcpClient>(ip, feedback_port);
+        dash_board_tcp_ = std::make_shared<TcpClient>(ip, dashboard_port);
+        motion_uses_dashboard_ = motion_port == dashboard_port;
+        if (motion_port == dashboard_port)
+            motion_tcp_ = dash_board_tcp_;
+        else if (motion_port == feedback_port)
+            motion_tcp_ = feedback_tcp_;
+        else
+            motion_tcp_ = std::make_shared<TcpClient>(ip, motion_port);
     }
 
     ~CR5Commander()
     {
         is_running_ = false;
-        thread_->join();
+        if (thread_ && thread_->joinable())
+            thread_->join();
     }
 
     void getCurrentJointStatus(double* joint)
@@ -120,44 +136,55 @@ public:
 
     void recvTask()
     {
+        auto last_connect_attempt = std::chrono::steady_clock::time_point();
+
         while (is_running_)
         {
-            try
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_connect_attempt > std::chrono::seconds(2))
             {
-                if (dash_board_tcp_->isConnect() && real_time_tcp_->isConnect())
-                {
-                    if (real_time_tcp_->tcpRecv(&real_time_data_, sizeof(real_time_data_), 100))
-                    {
-                        mutex_.lock();
-                        for (uint32_t i = 0; i < 6; i++)
-                            current_joint_[i] = deg2Rad(real_time_data_.q_actual[i]);
-
-                        memcpy(tool_vector_, real_time_data_.tool_vector_actual, sizeof(tool_vector_));
-                        mutex_.unlock();
-                    }
-                    else
-                    {
-                        //                        ROS_WARN("tcp recv timeout");
-                    }
-                }
-                else
-                {
+                auto connect_if_needed = [](const std::shared_ptr<TcpClient>& client, const char* name) {
+                    if (client->isConnect())
+                        return;
                     try
                     {
-                        real_time_tcp_->connect();
-                        dash_board_tcp_->connect();
+                        client->connect();
                     }
                     catch (const TcpClientException& err)
                     {
-                        ROS_ERROR("tcp recv error : %s", err.what());
-                        sleep(3);
+                        ROS_ERROR("%s tcp connect error : %s", name, err.what());
                     }
+                };
+
+                connect_if_needed(dash_board_tcp_, "dashboard");
+                connect_if_needed(feedback_tcp_, "feedback");
+                connect_if_needed(motion_tcp_, "motion");
+                last_connect_attempt = now;
+            }
+
+            if (!feedback_tcp_->isConnect())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+
+            try
+            {
+                if (feedback_tcp_->tcpRecv(&real_time_data_, sizeof(real_time_data_), 100))
+                {
+                    mutex_.lock();
+                    for (uint32_t i = 0; i < 6; i++)
+                        current_joint_[i] = deg2Rad(real_time_data_.q_actual[i]);
+
+                    memcpy(tool_vector_, real_time_data_.tool_vector_actual, sizeof(tool_vector_));
+                    mutex_.unlock();
                 }
             }
             catch (const TcpClientException& err)
             {
-                dash_board_tcp_->disConnect();
                 ROS_ERROR("tcp recv error : %s", err.what());
+                feedback_tcp_->disConnect();
+                sleep(3);
             }
         }
     }
@@ -182,38 +209,75 @@ public:
 
     bool isConnected() const
     {
-        return dash_board_tcp_->isConnect() && real_time_tcp_->isConnect();
+        return dash_board_tcp_->isConnect() && feedback_tcp_->isConnect() && motion_tcp_->isConnect();
     }
 
-    void enableRobot()
+    bool dashboardCommandSucceeded(const char* cmd, uint32_t len)
+    {
+        std::lock_guard<std::mutex> lock(command_mutex_);
+        dash_board_tcp_->tcpSend(cmd, len);
+
+        char response[1024] = {};
+        int read_len = dash_board_tcp_->tcpRecvSome(response, sizeof(response) - 1, 500);
+        if (read_len <= 0)
+        {
+            ROS_ERROR("dashboard command produced no response: %s", cmd);
+            return false;
+        }
+
+        response[read_len] = '\0';
+        ROS_INFO("dashboard response : %s", response);
+        return response[0] == '0';
+    }
+
+    void motionSendCmd(const char* cmd, uint32_t len)
+    {
+        std::lock_guard<std::mutex> lock(command_mutex_);
+        motion_tcp_->tcpSend(cmd, len);
+
+        if (!motion_uses_dashboard_)
+            return;
+
+        char response[1024] = {};
+        int read_len = motion_tcp_->tcpRecvSome(response, sizeof(response) - 1, 500);
+        if (read_len <= 0)
+            throw TcpClientException(std::string("motion command produced no response: ") + cmd);
+
+        response[read_len] = '\0';
+        ROS_DEBUG("motion response : %s", response);
+        if (response[0] != '0')
+            throw TcpClientException(std::string("motion command rejected: ") + response);
+    }
+
+    bool enableRobot()
     {
         const char* cmd = "EnableRobot()";
-        dash_board_tcp_->tcpSend(cmd, strlen(cmd));
+        return dashboardCommandSucceeded(cmd, strlen(cmd));
     }
 
-    void disableRobot()
+    bool disableRobot()
     {
         const char* cmd = "DisableRobot()";
-        dash_board_tcp_->tcpSend(cmd, strlen(cmd));
+        return dashboardCommandSucceeded(cmd, strlen(cmd));
     }
 
-    void clearError()
+    bool clearError()
     {
         const char* cmd = "ClearError()";
-        dash_board_tcp_->tcpSend(cmd, strlen(cmd));
+        return dashboardCommandSucceeded(cmd, strlen(cmd));
     }
 
-    void resetRobot()
+    bool resetRobot()
     {
         const char* cmd = "ResetRobot()";
-        dash_board_tcp_->tcpSend(cmd, strlen(cmd));
+        return dashboardCommandSucceeded(cmd, strlen(cmd));
     }
 
-    void speedFactor(int ratio)
+    bool speedFactor(int ratio)
     {
         char cmd[100];
         sprintf(cmd, "SpeedFactor(%d)", ratio);
-        dash_board_tcp_->tcpSend(cmd, strlen(cmd));
+        return dashboardCommandSucceeded(cmd, strlen(cmd));
     }
 
     /*
@@ -226,28 +290,28 @@ public:
     {
         char cmd[100];
         sprintf(cmd, "MovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void movL(double x, double y, double z, double a, double b, double c)
     {
         char cmd[100];
         sprintf(cmd, "MovL(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void jointMovJ(double j1, double j2, double j3, double j4, double j5, double j6)
     {
         char cmd[100];
         sprintf(cmd, "JointMovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", j1, j2, j3, j4, j5, j6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void moveJog(const std::string& axis)
     {
         char cmd[100];
         sprintf(cmd, "MoveJog(%s)", axis.c_str());
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void relMovJ(double offset1, double offset2, double offset3, double offset4, double offset5, double offset6)
@@ -255,28 +319,28 @@ public:
         char cmd[100];
         sprintf(cmd, "RelMovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", offset1, offset2, offset3, offset4, offset5,
                 offset6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void relMovL(double x, double y, double z)
     {
         char cmd[100];
         sprintf(cmd, "RelMovL(%0.3f,%0.3f,%0.3f)", x, y, z);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void servoJ(double j1, double j2, double j3, double j4, double j5, double j6)
     {
         char cmd[100];
         sprintf(cmd, "ServoJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", j1, j2, j3, j4, j5, j6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void servoP(double x, double y, double z, double a, double b, double c)
     {
         char cmd[100];
         sprintf(cmd, "ServoP(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, strlen(cmd));
     }
 
     void dashSendCmd(const char*cmd, uint32_t len)
@@ -286,7 +350,7 @@ public:
 
     void realSendCmd(const char*cmd, uint32_t len)
     {
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        motionSendCmd(cmd, len);
     }
 
 private:

@@ -1,0 +1,20 @@
+<launch>
+  <arg name="robot_ip" default="192.168.5.1"/>
+  <arg name="real_time_port" default="30004"/>
+  <arg name="dashboard_port" default="29999"/>
+  <arg name="motion_port" default="29999"/>
+  <arg name="start_bringup" default="true"/>
+  <arg name="start_moveit" default="true"/>
+  <arg name="start_pointing" default="true"/>
+
+  <include file="$(find cr5_color_pointing)/launch/hardware_color_pointing.launch">
+    <arg name="robot_ip" value="$(arg robot_ip)"/>
+    <arg name="real_time_port" value="$(arg real_time_port)"/>
+    <arg name="dashboard_port" value="$(arg dashboard_port)"/>
+    <arg name="motion_port" value="$(arg motion_port)"/>
+    <arg name="start_bringup" value="$(arg start_bringup)"/>
+    <arg name="start_moveit" value="$(arg start_moveit)"/>
+    <arg name="start_pointing" value="$(arg start_pointing)"/>
+    <arg name="motion_only" value="true"/>
+  </include>
+</launch>

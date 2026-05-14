@@ -11,10 +11,12 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include <ros/ros.h>
 #include <dobot_bringup/commander.h>
 #include <actionlib/server/action_server.h>
 #include <control_msgs/FollowJointTrajectoryAction.h>
+#include <trajectory_msgs/JointTrajectoryPoint.h>
 
 #include <dobot_bringup/MovJ.h>
 #include <dobot_bringup/MovL.h>
@@ -46,6 +48,9 @@ private:
     ros::Timer timer_;
     ros::Timer movj_timer_;
     double trajectory_duration_;
+    double servo_period_;
+    double goal_tolerance_;
+    ros::Time trajectory_start_time_;
     ros::NodeHandle control_nh_;
     std::shared_ptr<CR5Commander> commander_;
     std::vector<ros::ServiceServer> server_tbl_;

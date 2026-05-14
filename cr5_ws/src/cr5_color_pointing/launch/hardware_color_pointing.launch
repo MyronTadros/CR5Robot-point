@@ -1,0 +1,25 @@
+<launch>
+  <arg name="robot_ip" default="192.168.5.1"/>
+  <arg name="real_time_port" default="30004"/>
+  <arg name="dashboard_port" default="29999"/>
+  <arg name="motion_port" default="29999"/>
+  <arg name="start_bringup" default="true"/>
+  <arg name="start_moveit" default="true"/>
+  <arg name="start_pointing" default="true"/>
+  <arg name="motion_only" default="false"/>
+
+  <include if="$(arg start_bringup)" file="$(find dobot_bringup)/launch/bringup.launch">
+    <arg name="robot_ip" value="$(arg robot_ip)"/>
+    <arg name="real_time_port" value="$(arg real_time_port)"/>
+    <arg name="dashboard_port" value="$(arg dashboard_port)"/>
+    <arg name="motion_port" value="$(arg motion_port)"/>
+  </include>
+
+  <include if="$(arg start_moveit)" file="$(find cr5_moveit)/launch/cr5_moveit.launch"/>
+
+  <node if="$(arg start_pointing)" pkg="cr5_color_pointing" type="color_pointing_node.py" name="cr5_color_pointing" output="screen">
+    <rosparam file="$(find cr5_color_pointing)/config/hardware.yaml" command="load"/>
+    <rosparam file="$(find cr5_color_pointing)/config/color_thresholds.yaml" command="load"/>
+    <param name="hardware/motion_only" value="$(arg motion_only)"/>
+  </node>
+</launch>

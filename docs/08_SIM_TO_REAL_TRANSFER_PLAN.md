@@ -45,6 +45,12 @@ Keep perception simple:
 
 Do not introduce ML until the classical pipeline is proven insufficient.
 
+VX500 note:
+
+- The provided VX500 guide describes a mono smart camera (`Mono 8`), not an RGB-D color camera.
+- For VX500-only operation, use calibrated smart-camera output and publish `geometry_msgs/PointStamped` detections to `/cr5_color_pointing/detections/{color}`.
+- For direct HSV color thresholding on the real robot, use a real ROS RGB-D/RGB camera that publishes image, depth, and `CameraInfo` topics.
+
 ## Motion Transfer
 
 Keep motion conservative:
@@ -90,5 +96,5 @@ Move above green.
 Return home.
 ```
 
-But the execution backend must switch from simulation helpers to real robot control only after explicit approval.
-
+The real-hardware backend now exists in `cr5_color_pointing/launch/hardware_color_pointing.launch`.
+It disables simulated fallbacks, requires driver status, and refuses color commands until the configured detection source is present.

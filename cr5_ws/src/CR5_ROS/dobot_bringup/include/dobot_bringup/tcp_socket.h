@@ -77,5 +77,10 @@ public:
      */
     bool tcpRecv(void* buf, uint32_t len, uint32_t timeout);
 
+    /**
+     * tcpRecvSome
+     */
+    int tcpRecvSome(void* buf, uint32_t len, uint32_t timeout);
+
     std::string toString();
 };

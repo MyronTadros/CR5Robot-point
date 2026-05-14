@@ -1,0 +1,66 @@
+topics:
+  rgb_image: /wrist_rgbd/rgb/image_raw
+  depth_image: /wrist_rgbd/depth/image_raw
+  camera_info: /wrist_rgbd/rgb/camera_info
+  detected_point_template: /cr5_color_pointing/detections/{color}
+
+frames:
+  planning_frame: dummy_link
+  camera_frame: wrist_rgbd_camera_optical_frame
+
+moveit:
+  planning_group: cr5_arm
+  end_effector_link: Link6
+
+perception:
+  # Use rgbd for a ROS RGB-D camera. Use point_topic for a calibrated VX500 or
+  # other smart-camera bridge that publishes geometry_msgs/PointStamped targets.
+  mode: point_topic
+
+hardware:
+  require_robot_status: true
+  require_robot_enabled: true
+  auto_enable_robot: false
+  clear_error_before_enable: false
+  require_camera_topics: true
+  robot_status_topic: /dobot_bringup/msg/RobotStatus
+  enable_service: /dobot_bringup/srv/EnableRobot
+  clear_error_service: /dobot_bringup/srv/ClearError
+  speed_factor_service: /dobot_bringup/srv/SpeedFactor
+  preflight_timeout: 10.0
+  speed_factor: 10
+
+motion:
+  execution_mode: moveit
+  controller_action: /follow_joint_trajectory/follow_joint_trajectory
+  safety_height: 0.25
+  above_box_extra_clearance: 0.25
+  scan_target_link: wrist_rgbd_camera_optical_frame
+  observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
+  scan_joint_tolerance: 0.035
+  above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+  center_camera_over_box: true
+  home_state: home
+  home_joints: [0, 0, 0, 0, 0, 0]
+  max_velocity_scaling: 0.05
+  max_acceleration_scaling: 0.05
+  joint_state_timeout: 8.0
+  joint_state_max_age: 1.0
+  use_single_point_trajectories: false
+  controller_wait_margin: 60.0
+
+detection:
+  point_timeout: 15.0
+  tf_timeout: 2.0
+  point_topic_colors: [red, yellow, green]
+
+scene:
+  ground_plane_z: 0.0
+  cube_size: 0.05
+  max_tabletop_detection_z: 0.20
+  use_simulated_box_pose_fallback: false
+  allow_simulated_detection_fallback: false
+  boxes:
+    red: [0.45, -0.25, 0.025]
+    yellow: [0.55, 0.0, 0.025]
+    green: [0.45, 0.25, 0.025]

@@ -23,6 +23,7 @@ Read these documents before changing setup, launch, URDF, controller, perception
 | [12_CURRENT_STATUS.md](12_CURRENT_STATUS.md) | Current confirmed, reported, and needs-verification status |
 | [13_DOCUMENTATION_MAINTENANCE.md](13_DOCUMENTATION_MAINTENANCE.md) | Documentation rules for future Codex sessions |
 | [14_NEXT_AGENT_TODO.md](14_NEXT_AGENT_TODO.md) | Handoff TODO for the next agent: achieved state, current blocker, exact next steps |
+| [15_REAL_ROBOT_BRINGUP.md](15_REAL_ROBOT_BRINGUP.md) | Real CR5 launch path, hardware preflight, and VX500 perception notes |
 
 ## Legacy Docs
 

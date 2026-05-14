@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   moveit_commander
   gazebo_ros
   gazebo_msgs
+  dobot_bringup
 )
 
 catkin_python_setup()
@@ -22,6 +23,7 @@ catkin_package()
 catkin_install_python(PROGRAMS
   scripts/color_pointing_node.py
   scripts/detect_color_once.py
+  scripts/gazebo_joint_state_mirror.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

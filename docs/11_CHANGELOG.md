@@ -22,6 +22,95 @@ Validation:
 - Colored boxes spawned successfully.
 - `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` completed through MoveIt/Gazebo.
 
+## 2026-05-13 - Restore Gazebo Box RGB Visibility
+
+Status: implemented, build passed, runtime verified
+
+Changes:
+
+- Updated the red, yellow, and green box SDF models to use explicit Gazebo material scripts plus emissive color terms.
+- This fixes a Gazebo camera failure mode where depth saw the boxes but `/wrist_rgbd/rgb/image_raw` rendered the same pixels as gray ground, causing HSV detection to report no color blobs.
+
+Validation:
+
+- XML parsing passed for all three box SDF files.
+- Existing live Gazebo session had robot, camera topics, controllers, and boxes present.
+- `scan` completed through `cr5_joint_trajectory_controller` with action status `3`.
+- After respawning boxes, RGB mask counts from the wrist camera were red `2419`, yellow `1810`, green `2455`.
+- `detect_color_once.py` detected red, yellow, and green at tabletop-height points.
+- Topic command `Move above red.` completed through the trajectory controller with status `3`.
+- Topic command `Return home.` completed through the trajectory controller with status `3`.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+
+## 2026-05-14 - Real CR5 Motion-Only Bringup Path
+
+Status: implemented, driver/runtime preflight verified, physical motion pending
+
+Changes:
+
+- Added `hardware/motion_only` support to `color_pointing_node.py`.
+- Added `hardware_motion_only.launch`, which uses the real Dobot driver and MoveIt path but rejects red/yellow/green commands until the camera pipeline is ready.
+- Added `hardware_gazebo_shadow.launch` and `gazebo_joint_state_mirror.py` so Gazebo can display the physical robot state without starting a second simulated control stack.
+- Updated `hardware_color_pointing.launch` with a `motion_only` launch arg.
+- Split the Dobot driver into dashboard, realtime feedback, and motion-command TCP sockets.
+- Updated hardware launches to use dashboard port `29999`, realtime feedback port `30004`, and motion-command port `29999` by default for the tested CR5A controller.
+- Dashboard-routed motion commands now read and validate the Dobot response, preventing stale responses from accumulating on the socket.
+- Physical trajectory execution now interpolates MoveIt's timed trajectory and streams `ServoJ` at `0.05 s`, reducing chunky waypoint-to-waypoint motion.
+- Restored `dobot_bringup/msg/RobotStatus.msg`.
+- Updated dashboard-backed services to read Dobot responses, so `Control Mode Is Not Tcp` returns `res: -1` instead of a false `res: 0`.
+- Fixed action cancellation so timed-out/cancelled goals no longer report succeeded.
+
+Validation:
+
+- Configured the Linux wired interface `enp4s0` as `192.168.5.10/24` with no default route using NetworkManager profile `cr5-direct`.
+- Host and Docker could connect to dashboard port `29999`.
+- Port `30003` was refused by the physical controller, while `30004` and `30005` streamed realtime feedback.
+- In TCP mode, dashboard port `29999` accepted `RobotMode()`, `GetAngle()`, `GetPose()`, `GetErrorID()`, `EnableRobot()`, and a no-op `ServoJ(...)`.
+- Python syntax passed for `color_pointing_node.py`.
+- XML parsing passed for the hardware launch files and real URDF.
+- `roslaunch --nodes` resolved `hardware_motion_only.launch`.
+- `roslaunch --nodes` resolved `hardware_gazebo_shadow.launch`.
+- `roslaunch --nodes` resolved `hardware_color_pointing.launch motion_only:=true`.
+- `check_urdf` passed for the real CR5 URDF.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- Driver-only hardware bringup with `motion_port:=29999` published `/dobot_bringup/msg/RobotStatus` with `is_enable: True`, `is_connected: True`, and live `/joint_states`.
+- `/dobot_bringup/srv/ClearError`, `/dobot_bringup/srv/EnableRobot`, and no-op `/dobot_bringup/srv/ServoJ` returned `res: 0`.
+- A no-op `FollowJointTrajectory` action through `/follow_joint_trajectory/follow_joint_trajectory` completed with state `3`.
+- `hardware_gazebo_shadow.launch gazebo_gui:=false` spawned `hardware_robot` in Gazebo while the hardware driver supplied live `/joint_states`.
+- Full `hardware_motion_only.launch` started the real driver, MoveIt, RViz, robot_state_publisher, and command node.
+- Motion-only mode rejected `red`.
+- `scan` is blocked by hardware preflight until both the enabled and connected status bits are true.
+
+Not done:
+
+- Supervised physical `scan`/`home` motion tests are still pending.
+- No EnableRobot call was made.
+- No physical robot motion was commanded.
+
+## 2026-05-13 - Real CR5 Hardware Launch And VX500 Point-Topic Path
+
+Status: implemented, static validation passed, physical runtime pending
+
+Changes:
+
+- Added `cr5_color_pointing/config/hardware.yaml` for the real CR5 path.
+- Added `cr5_color_pointing/launch/hardware_color_pointing.launch` to start Dobot bringup, MoveIt, and the pointing node against `robot_ip:=192.168.5.1`.
+- Added hardware preflight checks in `color_pointing_node.py` for Dobot robot status, enabled state, configured speed factor, and camera/detection topics.
+- Added `perception/mode: point_topic`, which consumes calibrated `geometry_msgs/PointStamped` detections from `/cr5_color_pointing/detections/{color}`.
+- Kept the existing `rgbd` HSV + depth detector for simulation and real RGB-D cameras.
+- Added `dobot_description/urdf/cr5_robot.urdf` so the real MoveIt launch has a non-Gazebo URDF with the verified wrist camera TF.
+- Documented the VX500 manual finding that the camera is Mono 8, so a VX500-only setup needs calibrated smart-camera point output rather than direct HSV color thresholding.
+
+Validation:
+
+- Python compile passed for `color_pointing_node.py` and `perception.py`.
+- YAML parsing passed for `demo.yaml`, `hardware.yaml`, and `color_thresholds.yaml`.
+- XML parsing passed for `color_pointing.launch`, `hardware_color_pointing.launch`, and `cr5_robot.urdf`.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- `check_urdf` passed for the new real CR5 URDF.
+- `roslaunch --nodes` resolved both `color_pointing.launch` and `hardware_color_pointing.launch`.
+- Physical robot, Dobot driver connection, and VX500 point bridge are not yet runtime verified in this session.
+
 ## 2026-05-11 - Extra Gripper Clearance And Scan-Skip Latency Fix
 
 Status: implemented, build passed, runtime verified for red

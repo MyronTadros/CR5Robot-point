@@ -7,11 +7,19 @@
 
   <!-- robot_ip: IP-address of the robot's socket-messaging server -->
   <arg name="robot_ip" doc="IP of the controller" default="192.168.5.1"/>
+  <arg name="real_time_port" doc="Realtime feedback TCP port" default="30004"/>
+  <arg name="dashboard_port" doc="Dashboard TCP port" default="29999"/>
+  <arg name="motion_port" doc="Motion-command TCP port" default="30003"/>
 
   <node name="$(env DOBOT_TYPE)_robot" pkg="dobot_bringup" type="dobot_bringup" output="screen" >
     <param name="joint_publish_rate" type="double" value="10" />
     <param name="trajectory_duration" type="double" value="0.3" />
+    <param name="servo_period" type="double" value="0.05" />
+    <param name="goal_tolerance" type="double" value="0.01" />
     <param name="robot_ip_address" type="str" value="$(arg robot_ip)"/>
+    <param name="real_time_port" type="int" value="$(arg real_time_port)"/>
+    <param name="dashboard_port" type="int" value="$(arg dashboard_port)"/>
+    <param name="motion_port" type="int" value="$(arg motion_port)"/>
   </node>
 
 </launch>

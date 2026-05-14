@@ -20,6 +20,7 @@
   <build_depend>moveit_commander</build_depend>
   <build_depend>gazebo_ros</build_depend>
   <build_depend>gazebo_msgs</build_depend>
+  <build_depend>dobot_bringup</build_depend>
 
   <exec_depend>rospy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
@@ -32,4 +33,5 @@
   <exec_depend>moveit_commander</exec_depend>
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>gazebo_msgs</exec_depend>
+  <exec_depend>dobot_bringup</exec_depend>
 </package>

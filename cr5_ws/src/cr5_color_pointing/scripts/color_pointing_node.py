@@ -19,7 +19,16 @@ from std_msgs.msg import String
 from trajectory_msgs.msg import JointTrajectoryPoint
 import tf2_ros
 
-from cr5_color_pointing.perception import ColorDepthDetector, ColorDetectionError
+from cr5_color_pointing.perception import ColorDepthDetector, ColorDetectionError, PointTopicDetector
+
+try:
+    from dobot_bringup.msg import RobotStatus
+    from dobot_bringup.srv import ClearError, EnableRobot, SpeedFactor
+except ImportError:
+    RobotStatus = None
+    ClearError = None
+    EnableRobot = None
+    SpeedFactor = None
 
 
 class ColorPointingNode(object):
@@ -73,6 +82,22 @@ class ColorPointingNode(object):
         self.use_single_point_trajectories = bool(rospy.get_param("~motion/use_single_point_trajectories", True))
         self.single_point_duration = float(rospy.get_param("~motion/single_point_duration", 8.0))
         self.command_topic = rospy.get_param("~command_topic", "/cr5_color_pointing/command")
+        self.perception_mode = rospy.get_param("~perception/mode", "rgbd").strip().lower()
+        self.motion_only = bool(rospy.get_param("~hardware/motion_only", False))
+        self.require_camera_topics = bool(rospy.get_param("~hardware/require_camera_topics", False))
+        self.hardware_status_required = bool(rospy.get_param("~hardware/require_robot_status", False))
+        self.require_robot_enabled = bool(rospy.get_param("~hardware/require_robot_enabled", False))
+        self.auto_enable_robot = bool(rospy.get_param("~hardware/auto_enable_robot", False))
+        self.clear_error_before_enable = bool(rospy.get_param("~hardware/clear_error_before_enable", False))
+        self.robot_status_topic = rospy.get_param("~hardware/robot_status_topic", "/dobot_bringup/msg/RobotStatus")
+        self.enable_service_name = rospy.get_param("~hardware/enable_service", "/dobot_bringup/srv/EnableRobot")
+        self.clear_error_service_name = rospy.get_param("~hardware/clear_error_service", "/dobot_bringup/srv/ClearError")
+        self.speed_factor_service_name = rospy.get_param("~hardware/speed_factor_service", "/dobot_bringup/srv/SpeedFactor")
+        self.hardware_preflight_timeout = float(rospy.get_param("~hardware/preflight_timeout", 8.0))
+        self.hardware_speed_factor = int(rospy.get_param("~hardware/speed_factor", 0))
+        self.speed_factor_applied = False
+        self.robot_status = None
+        self.robot_status_lock = threading.Lock()
         self.joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
         self.last_commanded_joints = [0.0] * 6
         self.current_joint_positions = None
@@ -102,11 +127,22 @@ class ColorPointingNode(object):
             rospy.logwarn("MoveIt group did not accept pose reference frame '%s'.", self.target_frame)
 
         self.tf_buffer = tf2_ros.Buffer()
-        self.detector = ColorDepthDetector(tf_buffer=self.tf_buffer)
+        self.detector = self._make_detector()
         self.command_lock = threading.Lock()
         self.joint_state_lock = threading.Lock()
         self.joint_state_sub = rospy.Subscriber("/joint_states", JointState, self._joint_state_cb, queue_size=1)
         self.command_sub = rospy.Subscriber(self.command_topic, String, self._command_topic_cb, queue_size=1)
+        self.robot_status_sub = None
+        if self.hardware_status_required or self.require_robot_enabled or self.auto_enable_robot:
+            if RobotStatus is None:
+                rospy.logerr("dobot_bringup messages are unavailable; hardware robot-status checks cannot run.")
+            else:
+                self.robot_status_sub = rospy.Subscriber(
+                    self.robot_status_topic,
+                    RobotStatus,
+                    self._robot_status_cb,
+                    queue_size=1,
+                )
         self.trajectory_client = actionlib.SimpleActionClient(
             self.controller_action,
             FollowJointTrajectoryAction,
@@ -125,11 +161,25 @@ class ColorPointingNode(object):
         rospy.loginfo("CR5 color pointing ready. Commands: scan, red, yellow, green, home, quit.")
         rospy.loginfo("Also listening for std_msgs/String commands on %s", self.command_topic)
         rospy.loginfo("Execution mode is '%s'.", self.execution_mode)
+        rospy.loginfo("Perception mode is '%s'.", self.perception_mode)
+        if self.motion_only:
+            rospy.loginfo("Hardware motion-only mode is enabled; color commands are disabled.")
         rospy.loginfo("Using trajectory controller action %s.", self.controller_action)
         if not self.gazebo_joint_fallback_enabled:
             rospy.loginfo("Gazebo joint teleport fallback is disabled; using MoveIt/controller execution only.")
         if not self.allow_simulated_detection_fallback and not self.use_simulated_box_pose_fallback:
-            rospy.loginfo("Simulated detection/box pose fallbacks are disabled; using wrist RGB-D detection only.")
+            rospy.loginfo("Simulated detection/box pose fallbacks are disabled; using %s perception.", self.perception_mode)
+        if self.hardware_status_required:
+            rospy.loginfo("Hardware robot-status preflight is enabled on %s.", self.robot_status_topic)
+
+    def _make_detector(self):
+        if self.perception_mode in ("rgbd", "rgb_depth", "color_depth"):
+            return ColorDepthDetector(tf_buffer=self.tf_buffer)
+        if self.perception_mode in ("point_topic", "external_point", "external"):
+            return PointTopicDetector(tf_buffer=self.tf_buffer)
+        rospy.logwarn("Unknown perception/mode '%s'; using rgbd.", self.perception_mode)
+        self.perception_mode = "rgbd"
+        return ColorDepthDetector(tf_buffer=self.tf_buffer)
 
     def spin(self):
         if sys.stdin.isatty():
@@ -178,19 +228,33 @@ class ColorPointingNode(object):
             self.current_joint_positions = [by_name[name] for name in self.joint_names]
             self.current_joint_stamp = msg.header.stamp
 
+    def _robot_status_cb(self, msg):
+        with self.robot_status_lock:
+            self.robot_status = msg
+
     def handle_command(self, text):
         action = self._parse_command(text)
         if action == "quit":
             rospy.signal_shutdown("quit requested")
             return False
         if action == "home":
-            self.return_home()
+            if self._preflight_command(action):
+                self.return_home()
             return True
         if action == "scan":
-            self.move_to_scan_pose()
+            if self._preflight_command(action):
+                self.move_to_scan_pose()
             return True
         if action in ("red", "yellow", "green"):
-            self.point_at_color(action)
+            if self.motion_only:
+                rospy.logerr(
+                    "Color command '%s' rejected because hardware motion-only mode is enabled. "
+                    "Use scan or home until the camera pipeline is ready.",
+                    action,
+                )
+                return True
+            if self._preflight_command(action):
+                self.point_at_color(action)
             return True
 
         rospy.logwarn("Unknown command '%s'. Use scan, red, yellow, green, home, or quit.", text.strip())
@@ -218,6 +282,138 @@ class ColorPointingNode(object):
             if normalized == color or normalized == "move above " + color:
                 return color
         return None
+
+    def _preflight_command(self, action):
+        if self.hardware_status_required or self.require_robot_enabled or self.auto_enable_robot:
+            if not self._ensure_robot_ready():
+                return False
+        if self.require_camera_topics and action in ("red", "yellow", "green"):
+            if not self._ensure_detection_source(action):
+                return False
+        if not self._apply_speed_factor_once():
+            return False
+        return True
+
+    def _ensure_robot_ready(self):
+        if RobotStatus is None:
+            rospy.logerr("Cannot check real CR5 status because dobot_bringup messages are not importable.")
+            return False
+
+        deadline = time.time() + max(0.5, self.hardware_preflight_timeout)
+        status = None
+        while not rospy.is_shutdown() and time.time() < deadline:
+            with self.robot_status_lock:
+                status = self.robot_status
+            if status is not None:
+                break
+            time.sleep(0.05)
+
+        if status is None:
+            rospy.logerr("Timed out waiting for robot status on %s.", self.robot_status_topic)
+            return False
+        if not status.is_connected:
+            rospy.logerr("Real CR5 driver is running but not connected to the robot controller.")
+            return False
+        if status.is_enable:
+            return True
+        if not self.require_robot_enabled:
+            return True
+        if not self.auto_enable_robot:
+            rospy.logerr(
+                "Real CR5 is connected but not enabled. Enable it from the Dobot RViz plugin "
+                "or call %s, then resend the command.",
+                self.enable_service_name,
+            )
+            return False
+
+        if self.clear_error_before_enable and not self._call_clear_error():
+            return False
+        if not self._call_enable_robot():
+            return False
+        return self._wait_until_enabled()
+
+    def _call_clear_error(self):
+        if ClearError is None:
+            rospy.logerr("Cannot clear robot errors because dobot_bringup services are not importable.")
+            return False
+        try:
+            rospy.wait_for_service(self.clear_error_service_name, timeout=self.hardware_preflight_timeout)
+            response = rospy.ServiceProxy(self.clear_error_service_name, ClearError)()
+        except Exception as exc:
+            rospy.logerr("Could not call %s: %s", self.clear_error_service_name, exc)
+            return False
+        if getattr(response, "res", 0) != 0:
+            rospy.logerr("%s returned res=%s.", self.clear_error_service_name, response.res)
+            return False
+        return True
+
+    def _call_enable_robot(self):
+        if EnableRobot is None:
+            rospy.logerr("Cannot enable robot because dobot_bringup services are not importable.")
+            return False
+        try:
+            rospy.wait_for_service(self.enable_service_name, timeout=self.hardware_preflight_timeout)
+            response = rospy.ServiceProxy(self.enable_service_name, EnableRobot)()
+        except Exception as exc:
+            rospy.logerr("Could not call %s: %s", self.enable_service_name, exc)
+            return False
+        if getattr(response, "res", 0) != 0:
+            rospy.logerr("%s returned res=%s.", self.enable_service_name, response.res)
+            return False
+        return True
+
+    def _wait_until_enabled(self):
+        deadline = time.time() + max(0.5, self.hardware_preflight_timeout)
+        while not rospy.is_shutdown() and time.time() < deadline:
+            with self.robot_status_lock:
+                status = self.robot_status
+            if status is not None and status.is_connected and status.is_enable:
+                return True
+            time.sleep(0.05)
+        rospy.logerr("Robot did not report enabled after calling %s.", self.enable_service_name)
+        return False
+
+    def _apply_speed_factor_once(self):
+        if self.hardware_speed_factor <= 0 or self.speed_factor_applied:
+            return True
+        if SpeedFactor is None:
+            rospy.logerr("Cannot set speed factor because dobot_bringup services are not importable.")
+            return False
+        try:
+            rospy.wait_for_service(self.speed_factor_service_name, timeout=self.hardware_preflight_timeout)
+            response = rospy.ServiceProxy(self.speed_factor_service_name, SpeedFactor)(self.hardware_speed_factor)
+        except Exception as exc:
+            rospy.logerr("Could not call %s: %s", self.speed_factor_service_name, exc)
+            return False
+        if getattr(response, "res", 0) != 0:
+            rospy.logerr("%s returned res=%s.", self.speed_factor_service_name, response.res)
+            return False
+        self.speed_factor_applied = True
+        rospy.loginfo("Set Dobot speed factor to %d.", self.hardware_speed_factor)
+        return True
+
+    def _ensure_detection_source(self, color):
+        topics = self._detection_topics_for(color)
+        published = dict(rospy.get_published_topics())
+        missing = [topic for topic, _type_name in topics if topic not in published]
+        if not missing:
+            return True
+        rospy.logerr(
+            "Detection source is missing required ROS topics: %s. "
+            "Start the camera/bridge before commanding a color move.",
+            ", ".join(missing),
+        )
+        return False
+
+    def _detection_topics_for(self, color):
+        if self.perception_mode in ("point_topic", "external_point", "external"):
+            template = rospy.get_param("~topics/detected_point_template", "/cr5_color_pointing/detections/{color}")
+            return [(template.format(color=color), "geometry_msgs/PointStamped")]
+        return [
+            (rospy.get_param("~topics/rgb_image", "/wrist_rgbd/rgb/image_raw"), "sensor_msgs/Image"),
+            (rospy.get_param("~topics/depth_image", "/wrist_rgbd/depth/image_raw"), "sensor_msgs/Image"),
+            (rospy.get_param("~topics/camera_info", "/wrist_rgbd/rgb/camera_info"), "sensor_msgs/CameraInfo"),
+        ]
 
     def point_at_color(self, color):
         rospy.loginfo("Moving to scan pose before detecting %s.", color)

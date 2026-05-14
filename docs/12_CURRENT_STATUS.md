@@ -21,6 +21,105 @@ Confirmed in the 2026-05-17 Docker/Gazebo runtime pass on `fix/camera-position-f
 - `Move above green.` completed; after the move `Link6` was near `dummy_link x=0.401, y=0.249, z=0.576` while green was configured at `x=0.45, y=0.25`.
 - `Return home.` completed and returned joints to near zero.
 
+
+## Latest Update From Real Robot Motion-Only Prep
+
+Implemented on 2026-05-14:
+
+- Added `cr5_color_pointing/launch/hardware_motion_only.launch`.
+- Added `hardware/motion_only` handling in `color_pointing_node.py`.
+- In motion-only mode, the node still allows `scan` and `home`, but rejects red/yellow/green commands immediately.
+- This path does not require camera topics for `scan` or `home`.
+- Added `hardware_gazebo_shadow.launch` plus `gazebo_joint_state_mirror.py` for a hardware-safe Gazebo view.
+- Split the Dobot driver TCP sockets into dashboard, realtime feedback, and motion-command connections.
+- The hardware launch now uses dashboard port `29999`, realtime feedback port `30004`, and motion-command port `29999`.
+- This CR5A controller accepts dashboard commands in TCP mode but still refuses port `30003`; no-op `ServoJ` on dashboard port `29999` returned success.
+- Smoothed physical MoveIt execution by interpolating timed trajectories and streaming `ServoJ` every `0.05 s` instead of sending sparse trajectory waypoints as chunks.
+- Restored `dobot_bringup/msg/RobotStatus.msg` after it was missing from the worktree.
+- Dashboard services now read the Dobot response and return `res: -1` when the controller rejects the command.
+- Fixed action cancellation so timed-out/cancelled goals no longer report succeeded.
+- Added NetworkManager profile `cr5-direct` on host interface `enp4s0` with static address `192.168.5.10/24`.
+
+Validation completed:
+
+- Python syntax passed.
+- XML parsing passed for the hardware launch files and real URDF.
+- `roslaunch --nodes` resolved `hardware_motion_only.launch`.
+- `roslaunch --nodes` resolved `hardware_gazebo_shadow.launch`.
+- `roslaunch --nodes` resolved `hardware_color_pointing.launch motion_only:=true`.
+- `check_urdf` passed for `cr5_robot.urdf`.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- Host and Docker reached `192.168.5.1:29999`.
+- Host and Docker reached `192.168.5.1:30004`; sampled packets matched the expected realtime packet layout.
+- Dashboard commands now return success in TCP mode: `RobotMode()`, `GetAngle()`, `GetPose()`, `GetErrorID()`, and `EnableRobot()` returned `0`.
+- Port `30003` is still refused, while `30004` and `30005` stream realtime feedback.
+- Driver-only bringup with `motion_port:=29999` reports `is_enable: True` and `is_connected: True`.
+- `/dobot_bringup/srv/ClearError` and `/dobot_bringup/srv/EnableRobot` return `res: 0`.
+- A no-op `/dobot_bringup/srv/ServoJ` call at the current joint angles returned `res: 0`.
+- A no-op `FollowJointTrajectory` action through `/follow_joint_trajectory/follow_joint_trajectory` completed with action state `3`.
+- Driver-only bringup publishes live `/joint_states` from `30004` feedback.
+- `hardware_gazebo_shadow.launch gazebo_gui:=false` spawned a display-only `hardware_robot` model in Gazebo and used the real `/joint_states` source.
+- Full motion-only launch brought up `cr5_robot`, `move_group`, RViz, `robot_state_publisher`, and `cr5_color_pointing`.
+- Color command `red` was rejected by motion-only mode.
+- `scan` is blocked by hardware preflight until both `is_enable` and `is_connected` are true.
+
+Still pending:
+
+- Supervised low-speed `scan` and `home` live tests.
+- Camera-dependent color tests.
+
+Operational note:
+
+- Do not run the normal `run-cr5-gazebo` / `cr5_moveit demo_gazebo.launch` simulation stack during hardware control. It starts a separate simulated robot, controllers, MoveIt, `robot_state_publisher`, and `/joint_states`. Use `hardware_gazebo_shadow.launch` for a Gazebo view that follows the physical robot.
+
+## Latest Update From Real Robot Bringup Prep
+
+Implemented on 2026-05-13:
+
+- Added `cr5_color_pointing/config/hardware.yaml` for the real CR5 path.
+- Added `cr5_color_pointing/launch/hardware_color_pointing.launch`.
+- Real hardware motion targets the Dobot driver action `/follow_joint_trajectory/follow_joint_trajectory`.
+- Hardware mode disables Gazebo fallbacks and uses low speed settings: MoveIt velocity/acceleration scaling `0.05` and Dobot speed factor `10`.
+- Hardware preflight now checks `/dobot_bringup/msg/RobotStatus`, requires the robot to be connected/enabled, and checks the configured detection source topic before color commands.
+- Added `perception/mode: point_topic`, expecting `geometry_msgs/PointStamped` detections at `/cr5_color_pointing/detections/{color}`.
+- Kept `perception/mode: rgbd` for the existing HSV + RGB-D detector.
+- Added `cr5_ws/src/CR5_ROS/dobot_description/urdf/cr5_robot.urdf`, a non-Gazebo real MoveIt URDF with the verified wrist camera TF.
+- The VX500 guide was checked: the camera is Mono 8, not RGB-D, so direct red/yellow/green HSV color detection requires a separate RGB/RGB-D stream or a calibrated VX500 point/result bridge.
+
+Validation completed:
+
+- Python compile passed for the modified Python files.
+- YAML load checks passed for demo, hardware, and color-threshold configs.
+- XML parse checks passed for the launch files and real URDF.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+- `check_urdf` passed for `cr5_robot.urdf`.
+- `roslaunch --nodes` resolved both the simulation and hardware color-pointing launches.
+
+Not yet runtime verified:
+
+- No physical CR5 controller was connected in this session.
+- No live VX500/point bridge was available.
+- Hardware motion still needs a supervised low-speed live test.
+
+Local workspace note:
+
+- `cr5_color_pointing/config/demo.yaml` had a pre-existing user edit changing simulation `motion/above_box_extra_clearance` to `0.15`; this session preserved that file content. The new hardware config uses `0.25`.
+
+## Gazebo Box RGB Visibility Fix
+
+Confirmed on 2026-05-13:
+
+- The original simulation stack was already running with Gazebo, MoveIt, RViz, `cr5_color_pointing`, wrist RGB-D topics, controllers, and colored box models.
+- `scan` moved to the observation pose through `cr5_joint_trajectory_controller` with action status `3`.
+- At the scan pose, depth at the projected red/yellow/green box pixels was correct, but RGB pixels were gray and HSV mask counts were zero.
+- The red, yellow, and green SDF models now use explicit Gazebo material scripts and emissive color terms.
+- After deleting and respawning the boxes, the wrist RGB image contained red `2419`, yellow `1810`, and green `2455` mask pixels.
+- `detect_color_once.py red`, `yellow`, and `green` all detected tabletop-height points.
+- `Move above red.` completed through the trajectory controller with action status `3`.
+- `Return home.` completed through the trajectory controller with action status `3`, and joints returned near zero.
+- XML parse checks passed for the three box SDF files.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed inside `cr5ros`.
+
 ## Latest Update From Gripper Clearance And Scan-Skip Fix
 
 Confirmed in the 2026-05-11 high-clearance red-command runtime pass:

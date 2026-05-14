@@ -1,0 +1,26 @@
+<launch>
+  <arg name="model_name" default="hardware_robot"/>
+  <arg name="robot_urdf" default="$(find dobot_description)/urdf/cr5_robot.urdf"/>
+  <arg name="paused" default="true"/>
+  <arg name="gazebo_gui" default="true"/>
+  <arg name="mirror_rate" default="10.0"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" default="worlds/empty.world"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="gui" value="$(arg gazebo_gui)"/>
+  </include>
+
+  <param name="robot_description" textfile="$(arg robot_urdf)"/>
+
+  <node name="spawn_hardware_shadow_robot" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -param robot_description -model $(arg model_name) -x 0 -y 0 -z 0"/>
+
+  <node name="gazebo_joint_state_mirror" pkg="cr5_color_pointing" type="gazebo_joint_state_mirror.py" output="screen">
+    <param name="model_name" value="$(arg model_name)"/>
+    <param name="urdf_param_name" value="robot_description"/>
+    <param name="joint_state_topic" value="/joint_states"/>
+    <param name="rate" value="$(arg mirror_rate)"/>
+    <rosparam param="joint_names">[joint1, joint2, joint3, joint4, joint5, joint6]</rosparam>
+  </node>
+</launch>

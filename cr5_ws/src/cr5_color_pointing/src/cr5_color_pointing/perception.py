@@ -190,3 +190,67 @@ class ColorDepthDetector(object):
                 "Could not transform %s to %s: %s"
                 % (camera_point.header.frame_id, self.target_frame, exc)
             )
+
+
+class PointTopicDetector(object):
+    """Use calibrated external camera detections published as PointStamped messages."""
+
+    def __init__(self, tf_buffer=None):
+        self.topic_template = rospy.get_param(
+            "~topics/detected_point_template",
+            "/cr5_color_pointing/detections/{color}",
+        )
+        self.target_frame = rospy.get_param("~frames/planning_frame", "dummy_link")
+        self.point_timeout = float(rospy.get_param("~detection/point_timeout", 10.0))
+        self.tf_timeout = float(rospy.get_param("~detection/tf_timeout", 2.0))
+        self.allowed_colors = rospy.get_param("~detection/point_topic_colors", ["red", "yellow", "green"])
+        self.tf_buffer = tf_buffer or tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+    def detect(self, color_name):
+        color = self._normalize_color(color_name)
+        topic = self.topic_template.format(color=color)
+        msg = rospy.wait_for_message(topic, PointStamped, timeout=self.point_timeout)
+        target_point = self._transform_point(msg)
+
+        rospy.loginfo(
+            "External point detection: color=%s source_frame=%s target_frame=%s "
+            "target_xyz=(%.4f, %.4f, %.4f)",
+            color,
+            msg.header.frame_id or "<empty>",
+            target_point.header.frame_id,
+            target_point.point.x,
+            target_point.point.y,
+            target_point.point.z,
+        )
+
+        return {
+            "color": color,
+            "target_point": target_point,
+        }
+
+    def _normalize_color(self, color_name):
+        color = color_name.strip().lower()
+        if color not in self.allowed_colors:
+            raise ColorDetectionError("Unsupported color '%s'. Use red, yellow, or green." % color_name)
+        return color
+
+    def _transform_point(self, point):
+        if not point.header.frame_id:
+            point.header.frame_id = self.target_frame
+        if point.header.frame_id == self.target_frame:
+            point.header.stamp = rospy.Time.now()
+            return point
+
+        try:
+            point.header.stamp = rospy.Time(0)
+            return self.tf_buffer.transform(
+                point,
+                self.target_frame,
+                rospy.Duration(self.tf_timeout),
+            )
+        except Exception as exc:
+            raise ColorDetectionError(
+                "Could not transform external point from %s to %s: %s"
+                % (point.header.frame_id, self.target_frame, exc)
+            )
