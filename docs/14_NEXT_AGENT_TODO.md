@@ -1,10 +1,10 @@
 # Next Agent TODO
 
-This document is a handoff for the next Codex/agent session. Read it before making more changes.
+This handoff reflects the verified state after the 2026-05-11 merge of `main` into `fix/camera-position-fix`.
 
 ## Project Goal
 
-Build a Gazebo + MoveIt demo where the Dobot CR5:
+Build and maintain a Gazebo + MoveIt demo where the Dobot CR5:
 
 1. starts in Gazebo with gravity ON,
 2. holds itself physically using Gazebo ROS control,
@@ -15,40 +15,27 @@ Build a Gazebo + MoveIt demo where the Dobot CR5:
 7. returns to `scan` or `home`,
 8. never grips, touches, or descends onto the boxes.
 
-The intended command sequence is:
+## Current Accepted State
 
-```text
-scan
-red
-scan
-yellow
-scan
-green
-home
-```
+Confirmed on 2026-05-11:
 
-or topic commands like:
-
-```text
-Move above red.
-Move above yellow.
-Move above green.
-Return home.
-```
-
-## Hard Rules
-
-- Keep gravity ON.
-- Do not set the robot static.
-- Do not disable physics.
-- Do not fake robot motion as the normal solution.
-- Do not use Gazebo joint teleporting as the main path.
-- Do not add gripper logic.
-- Do not make the robot touch boxes.
-- Do not work on real robot bringup unless explicitly required.
-- Prefer sim-specific files.
-- Keep changes small and reversible.
-- If perception fails, diagnose camera image content before changing HSV thresholds.
+- `main` was merged into `fix/camera-position-fix`.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `run-cr5-gazebo` launched Gazebo + RViz + MoveIt.
+- Gravity stayed ON.
+- `joint_state_controller` and `cr5_joint_trajectory_controller` were running.
+- `cr5_joint_trajectory_controller` used `effort_controllers/JointTrajectoryController`.
+- Wrist RGB-D topics published.
+- Colored boxes spawned.
+- `scan` moved through the real trajectory controller with action status `3`.
+- RGB sampling from scan contained red/yellow/green pixels.
+- One-shot detections passed for red, yellow, and green at tabletop height.
+- Topic-command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real trajectory controller.
+- A later red-command pass fixed and verified above-box wrist-camera orientation: after `Move above red.`, the camera optical +Z axis was `[-0.033, 0.007, -0.999]` in `world`.
+- The latest red-command pass added an extra `0.25 m` gripper-clearance margin and verified the final camera frame near `world z=0.535`.
+- The latest red-command pass also skipped the redundant post-scan observation trajectory and sent the above-red trajectory about `0.5 s` after receiving the color command.
+- Simulated motion/detection fallbacks were disabled and unused.
+- `home` returned to near-zero launch/home joints.
 
 ## Important Paths
 
@@ -66,395 +53,122 @@ Standard ROS command pattern:
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && COMMAND_HERE'
 ```
 
-## What Is Already Achieved
+## Camera And Scan
 
-### Docker/Desktop
-
-Confirmed:
-
-- Docker image/container can be restored with `./setup-docker.sh` without resetting source files.
-- `start-cr5-desktop` starts the TurboVNC/noVNC desktop.
-- `catkin_make -DCMAKE_BUILD_TYPE=Release` passes.
-
-Useful commands:
-
-```bash
-source ~/.bashrc
-start-cr5-desktop
-cr5-ensure-container
-cr5-shell
-```
-
-### Gazebo Control
-
-Current Gazebo simulation uses:
+Active Gazebo camera mount:
 
 ```text
-cr5_ws/src/CR5_ROS/dobot_description/urdf/cr5_robot_gazebo.urdf
-cr5_ws/src/CR5_ROS/cr5_moveit/config/gazebo_controllers.yaml
+Link6 -> wrist_rgbd_camera_link
+xyz="0 -0.055 0"
+rpy="1.5708 -1.5708 0"
 ```
 
-Confirmed in latest runtime pass:
-
-- `run-cr5-gazebo` launches Gazebo + RViz + MoveIt.
-- Gravity remains ON.
-- `cr5_joint_trajectory_controller` is `effort_controllers/JointTrajectoryController`.
-- Controller claims `joint1` through `joint6` through `EffortJointInterface`.
-- Strong Gazebo-only passive damping/friction in the URDF lets the robot settle at startup.
-- Startup hold completed in the latest run.
-- `/joint_states` settled near zero with very small velocities after startup.
-
-Important: the latest stability improvement came from Gazebo-only dynamics changes plus loose controller abort tolerances. Do not casually remove them.
-
-### Scan Motion
-
-Current scan config is in:
+Optical frame:
 
 ```text
-cr5_ws/src/cr5_color_pointing/config/demo.yaml
+wrist_rgbd_camera_link -> wrist_rgbd_camera_optical_frame
+xyz="0 0 0"
+rpy="-1.5708 0 -1.5708"
 ```
 
-Current scan parameters:
+Current scan config in `cr5_ws/src/cr5_color_pointing/config/demo.yaml`:
 
 ```yaml
 scan_target_link: wrist_rgbd_camera_optical_frame
-scan_position: [0.55, 0.0, 0.85]
-scan_orientation_xyzw: [1.0, 0.0, 0.0, 0.0]
+above_box_extra_clearance: 0.25
+observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
+scan_joint_tolerance: 0.035
+above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+center_camera_over_box: true
 ```
 
-Confirmed in latest runtime pass:
+The command node still supports optional Cartesian scan config if `scan_position` and `scan_orientation_xyzw` are added back, but the accepted default uses `observation_joints`.
 
-- The `scan` command moved the wrist camera to about:
+Above-box moves now compensate for the fixed `Link6 -> wrist_rgbd_camera_optical_frame` offset so the camera frame, not just `Link6`, stays centered over the selected cube.
+
+Color commands now skip the scan trajectory when the current joint state is already within `0.035 rad` of `observation_joints`.
+
+Latest scan TF sample:
 
 ```text
-x=0.581, y=0.006, z=0.825 in dummy_link
-RPY about [179 deg, 3 deg, 0 deg]
+world -> wrist_rgbd_camera_optical_frame
+translation about [0.525, 0.018, 0.704]
+RPY about [176 deg, -2 deg, -90 deg]
 ```
 
-- This means scan motion is now close to the intended pose: high above the boxes and mostly pointing downward.
+## Latest Detection Results
 
-### Boxes
-
-Box spawning works:
-
-```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing spawn_colored_boxes.launch'
-```
-
-Default model positions:
-
-| Color | Model | x | y | z |
-| --- | --- | ---: | ---: | ---: |
-| red | `red_box` | `0.45` | `-0.25` | `0.025` |
-| yellow | `yellow_box` | `0.55` | `0.0` | `0.025` |
-| green | `green_box` | `0.45` | `0.25` | `0.025` |
-
-## Current Blocking Problem
-
-The full demo is not accepted yet.
-
-Latest failing layer:
+Standalone detector results after scan:
 
 ```text
-camera image / Gazebo rendering / camera sensor orientation
+red:    dummy_link x=0.4544, y=-0.2396, z=0.0501
+yellow: dummy_link x=0.5512, y= 0.0018, z=0.0501
+green:  dummy_link x=0.4534, y= 0.2446, z=0.0500
 ```
 
-Not currently failing first:
+Command-node results used the configured planning frame and logged:
 
 ```text
-Docker
-Gazebo launch
-controller loading
-startup hold
-box spawning
-scan motion
-command topic plumbing
+red:    world x=0.454, y=-0.239, z=0.050
+yellow: world x=0.551, y= 0.002, z=0.050
+green:  world x=0.453, y= 0.245, z=0.050
 ```
 
-Latest HSV test result:
+## Repeat Verification
 
-- From the corrected scan pose, `detect_color_once.py red`, `yellow`, and `green` all failed with no blob found.
-- Sampling the RGB image showed only grayscale pixels:
-
-```text
-BGR min: [41, 41, 41]
-BGR max: [202, 202, 202]
-red pixels: 0
-yellow pixels: 0
-green pixels: 0
-```
-
-Interpretation:
-
-- Do not tune HSV thresholds first.
-- The camera image does not contain visible colored boxes.
-- Next work should inspect camera sensor view direction, rendered image content, and depth image.
-
-## Files Most Relevant For Next Work
-
-Gazebo camera/robot:
-
-```text
-cr5_ws/src/CR5_ROS/dobot_description/urdf/cr5_robot_gazebo.urdf
-```
-
-Controller:
-
-```text
-cr5_ws/src/CR5_ROS/cr5_moveit/config/gazebo_controllers.yaml
-```
-
-Color pointing config:
-
-```text
-cr5_ws/src/cr5_color_pointing/config/demo.yaml
-cr5_ws/src/cr5_color_pointing/config/color_thresholds.yaml
-```
-
-Color pointing nodes:
-
-```text
-cr5_ws/src/cr5_color_pointing/scripts/color_pointing_node.py
-cr5_ws/src/cr5_color_pointing/scripts/detect_color_once.py
-cr5_ws/src/cr5_color_pointing/src/cr5_color_pointing/perception.py
-```
-
-Box models:
-
-```text
-cr5_ws/src/cr5_color_pointing/models/colored_box_red/model.sdf
-cr5_ws/src/cr5_color_pointing/models/colored_box_yellow/model.sdf
-cr5_ws/src/cr5_color_pointing/models/colored_box_green/model.sdf
-```
-
-## Exact Test Sequence To Reproduce Current State
-
-Terminal 1:
+Use this sequence after future edits:
 
 ```bash
 source ~/.bashrc
 start-cr5-desktop
 ```
 
-Terminal 2:
+In another terminal:
 
 ```bash
 source ~/.bashrc
 run-cr5-gazebo
 ```
 
-Wait for Gazebo, RViz, MoveIt, controllers, and physics unpause.
-
-Terminal 3:
+Then:
 
 ```bash
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing spawn_colored_boxes.launch'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing color_pointing.launch'
 ```
 
-Terminal 4:
+Send commands from another terminal:
 
 ```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosservice call /controller_manager/list_controllers'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosservice call /gazebo/get_physics_properties | grep -A4 gravity'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic echo -n 1 /joint_states'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''scan'\''"'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_optical_frame'
-```
-
-Then test detector:
-
-```bash
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py red'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py yellow'
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py green'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Move above red.'\''"'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''scan'\''"'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Move above yellow.'\''"'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''scan'\''"'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Move above green.'\''"'
+docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rostopic pub -1 /cr5_color_pointing/command std_msgs/String "data: '\''Return home.'\''"'
 ```
 
-## Next Debugging Steps
+## Hard Rules
 
-### 1. Confirm Camera Sees Only Gray
+- Keep gravity ON.
+- Do not set the robot static.
+- Do not disable physics.
+- Do not fake robot motion as the normal solution.
+- Do not use Gazebo joint teleporting as the main path.
+- Do not add gripper logic.
+- Do not make the robot touch boxes.
+- Do not work on real robot bringup unless explicitly required.
+- Prefer sim-specific files.
+- Keep changes small and reversible.
+- If perception fails later, diagnose camera image content before changing HSV thresholds.
 
-Run after `scan`:
+## Sensible Next Work
 
-```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && python - <<'"'"'PY'"'"'
-import rospy, cv2, numpy as np
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-rospy.init_node("sample_wrist_image", anonymous=True)
-msg = rospy.wait_for_message("/wrist_rgbd/rgb/image_raw", Image, timeout=5)
-bgr = CvBridge().imgmsg_to_cv2(msg, desired_encoding="bgr8")
-hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-print("shape", bgr.shape)
-print("bgr minmax", bgr.reshape(-1,3).min(axis=0).tolist(), bgr.reshape(-1,3).max(axis=0).tolist())
-for name, ranges in {
-    "red": [((0,40,30),(15,255,255)), ((165,40,30),(180,255,255))],
-    "yellow": [((15,40,30),(45,255,255))],
-    "green": [((35,30,20),(95,255,255))],
-}.items():
-    mask = None
-    for lo, hi in ranges:
-        m = cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8))
-        mask = m if mask is None else cv2.bitwise_or(mask, m)
-    print(name, "pixels", int(np.count_nonzero(mask)))
-PY'
-```
-
-If color pixels are still zero, continue below.
-
-### 2. Sample Depth Image
-
-Run after `scan`:
-
-```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && python - <<'"'"'PY'"'"'
-import rospy, numpy as np
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-rospy.init_node("sample_depth", anonymous=True)
-d = CvBridge().imgmsg_to_cv2(rospy.wait_for_message("/wrist_rgbd/depth/image_raw", Image, timeout=5), desired_encoding="passthrough")
-a = np.asarray(d).astype("float32")
-v = a[np.isfinite(a) & (a > 0)]
-print("depth shape", a.shape)
-print("depth min/median/max", float(np.min(v)), float(np.median(v)), float(np.max(v)))
-print("center depth", float(a[a.shape[0]//2, a.shape[1]//2]))
-PY'
-```
-
-Interpretation:
-
-- If depth is around `0.8 m`, the camera likely sees the ground plane.
-- If depth is very small, the camera may see the robot/wrist.
-- If depth is empty or invalid, the camera plugin/sensor is failing.
-
-### 3. Inspect Actual Camera View
-
-Open:
-
-```bash
-run-cr5-camera-rqt
-```
-
-or:
-
-```bash
-run-cr5-camera-web
-```
-
-Then browse:
-
-```text
-http://localhost:8080/stream?topic=/wrist_rgbd/rgb/image_raw
-```
-
-Look for:
-
-- gray floor only,
-- robot/wrist occluding camera,
-- boxes outside frame,
-- boxes visible but rendered gray,
-- image black/invalid.
-
-### 4. Inspect Box Materials
-
-Read:
-
-```bash
-for f in /teamspace/studios/this_studio/cr5_ws/src/cr5_color_pointing/models/colored_box_*/model.sdf; do
-  echo "$f"
-  sed -n '1,200p' "$f"
-done
-```
-
-Potential issue:
-
-- SDF visual material may show color in Gazebo GUI but the camera may render ambient/diffuse differently.
-- If needed, add explicit ambient and diffuse colors for each model.
-
-Do this only after confirming the camera points at the boxes.
-
-### 5. Verify Sensor Direction
-
-Important camera links:
-
-```text
-wrist_rgbd_camera_link
-wrist_rgbd_camera_optical_frame
-```
-
-In URDF:
-
-```text
-sensor is attached to wrist_rgbd_camera_link
-plugin frameName is wrist_rgbd_camera_optical_frame
-```
-
-Potential issue:
-
-- Gazebo sensor ray direction may use `wrist_rgbd_camera_link`, while the plugin publishes TF as `wrist_rgbd_camera_optical_frame`.
-- The scan target currently makes the optical frame look down, but the Gazebo sensor may be looking along the camera link axis instead.
-
-Check TF:
-
-```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_link'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && timeout 5 rosrun tf tf_echo dummy_link wrist_rgbd_camera_optical_frame'
-```
-
-If the sensor is using the wrong axis, minimally patch the camera fixed joints or sensor reference so the rendered image and published optical frame agree.
-
-### 6. Only Then Tune HSV
-
-If the camera image visibly contains colored boxes and the HSV sampler shows colored pixels, but `detect_color_once.py` still fails, tune:
-
-```text
-cr5_ws/src/cr5_color_pointing/config/color_thresholds.yaml
-```
-
-Then retest:
-
-```bash
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py red'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py yellow'
-docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && rosrun cr5_color_pointing detect_color_once.py green'
-```
-
-## Acceptance Criteria
-
-Do not claim success until all are true:
-
-- Gazebo launches with gravity ON.
-- Robot starts upright and stable.
-- `joint_state_controller` is running.
-- `cr5_joint_trajectory_controller` is running as an effort controller.
-- `scan` moves the wrist camera above the boxes and holds.
-- Wrist RGB-D topics publish.
-- RGB image visibly contains red/yellow/green boxes.
-- HSV detects red, yellow, and green from scan.
-- Detected 3D points are plausible and near tabletop height.
-- `red` moves safely above the red box.
-- `scan` returns to the overhead scan pose.
-- `yellow` moves safely above the yellow box.
-- `scan` returns to the overhead scan pose.
-- `green` moves safely above the green box.
-- `home` returns safely.
-- No teleport fallback is used as the normal path.
-- Robot does not collapse or touch boxes.
-
-## Documentation Updates Required After Next Fix
-
-When behavior changes, update:
-
-```text
-README.md
-docs/11_CHANGELOG.md
-docs/12_CURRENT_STATUS.md
-docs/14_NEXT_AGENT_TODO.md
-```
-
-If the next fix changes camera design, also update:
-
-```text
-docs/05_WRIST_CAMERA_AND_PERCEPTION.md
-docs/06_COLOR_POINTING_PACKAGE.md
-```
+- Add a small automated smoke-test script for the scan/detect sequence.
+- Publish optional RViz markers for detected points and above-box targets.
+- Clean up backup files only if the project owner wants repository history tidied.
+- Consider narrowing or documenting the broad Docker port bindings for VNC/noVNC if the Lightning environment exposes host ports beyond SSH forwarding.

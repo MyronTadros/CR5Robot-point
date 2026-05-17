@@ -48,15 +48,19 @@ From `config/demo.yaml`:
 | RGB topic | `/wrist_rgbd/rgb/image_raw` |
 | Depth topic | `/wrist_rgbd/depth/image_raw` |
 | CameraInfo topic | `/wrist_rgbd/rgb/camera_info` |
-| Planning frame | `dummy_link` |
+| Planning frame | `world` |
 | Camera frame | `wrist_rgbd_camera_optical_frame` |
 | MoveIt group | `cr5_arm` |
 | End link | `Link6` |
 | Safety height | `0.25 m` |
+| Extra gripper clearance | `0.25 m` |
 | Cube size | `0.05 m` |
-| Scan Link6 position | `[0.55, 0.0, 0.77]` |
-| Scan Link6 orientation xyzw | `[0.0, 0.0, 1.0, 0.0]` |
-| Observation/scan joints | `[3.13, -0.8, 1.2, 0.0, 1.1, 0.0]` |
+| Scan target link | `wrist_rgbd_camera_optical_frame` |
+| Scan behavior | configured `observation_joints` |
+| Scan joint skip tolerance | `0.035 rad` |
+| Above-box Link6 orientation xyzw | `[0.7071068, -0.7071068, 0.0, 0.0]` |
+| Center camera over above-box target | `true` |
+| Observation/scan joints | `[0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]` |
 | Home state | `home` |
 | Command topic | `/cr5_color_pointing/command` |
 | Execution mode | `moveit` |
@@ -99,21 +103,23 @@ Do not paste the full `docker exec ... rostopic pub ...` command at the `cr5>` p
 
 ## Scan Pose
 
-`scan` uses a Cartesian MoveIt target instead of a guessed joint pose. The target places `Link6` near:
+`scan` currently uses the configured joint-space observation pose. In the latest verification run, it placed `wrist_rgbd_camera_optical_frame` near:
 
 ```text
-x=0.55, y=0.0, z=0.77
+x=0.525, y=0.018, z=0.704 in world
 ```
 
-with orientation:
+with the optical frame mostly pointing down toward the boxes:
 
 ```text
-xyzw=[0.0, 0.0, 1.0, 0.0]
+RPY about [176 deg, -2 deg, -90 deg]
 ```
 
-Because the wrist camera is fixed slightly above `Link6`, this puts the camera roughly above the yellow box and points the optical axis down toward the ground where the boxes sit.
+The command node still supports a configured Cartesian scan target if `motion/scan_position` and `motion/scan_orientation_xyzw` are reintroduced, but the current default intentionally uses `observation_joints` because that is the pose verified with the merged camera geometry.
 
-The older `motion/observation_joints` value remains as a fallback if the Cartesian scan pose is removed from config.
+The above-box pointing target uses a fixed Link6 orientation that keeps `wrist_rgbd_camera_optical_frame` looking down. With `motion/center_camera_over_box: true`, the node subtracts the current `Link6 -> wrist_rgbd_camera_optical_frame` offset from the Link6 target so the camera, not just the flange, is centered over the requested cube. The camera target z is `ground_plane_z + cube_size + safety_height + above_box_extra_clearance`, which is `0.55 m` in the default simulation config.
+
+When color commands are issued from the scan pose, the node checks the live `/joint_states` against `observation_joints`. If all joints are within `motion/scan_joint_tolerance`, it skips the redundant scan trajectory and starts detection immediately.
 
 ## Fallback Policy
 
@@ -163,9 +169,11 @@ Run command node:
 docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing color_pointing.launch'
 ```
 
-## Needs Verification
+## Latest Verification
 
-- Rebuild after the Gazebo control fix.
-- Re-test `detect_color_once.py red/yellow/green` from a settled observation pose.
-- Re-test interactive commands.
-- Tune the observation pose/camera view so the wrist camera sees the boxes without fallback.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- `color_pointing_node.py` and `detect_color_once.py` are executable for `roslaunch`/`rosrun`.
+- `detect_color_once.py red/yellow/green` passed from scan with tabletop-height points.
+- Full topic-command sequence `red -> scan -> yellow -> scan -> green -> home` completed through the real MoveIt/Gazebo trajectory controller.
+- After the gripper-clearance and scan-skip fixes, `Move above red.` skipped the redundant scan move, sent the above-box trajectory about `0.5 s` after the color command was received, and left the camera frame near `world x=0.458, y=-0.240, z=0.535` with optical +Z `[-0.032, 0.007, -0.999]` in `world`; the image still contained the red box.
+- Simulated motion/detection fallbacks remained disabled and unused.

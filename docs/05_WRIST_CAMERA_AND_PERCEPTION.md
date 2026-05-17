@@ -13,10 +13,11 @@ wrist_rgbd_camera
 wrist_rgbd_camera_controller
 ```
 
-Gazebo plugin:
+Gazebo plugins:
 
 ```text
-libgazebo_ros_openni_kinect.so
+libgazebo_ros_camera.so
+libgazebo_ros_depth_camera.so
 ```
 
 The camera is fixed to:
@@ -24,7 +25,22 @@ The camera is fixed to:
 ```text
 parent: Link6
 child:  wrist_rgbd_camera_link
+origin: xyz="0 -0.055 0" rpy="1.5708 -1.5708 0"
 ```
+
+The merged camera geometry approximates a VX500-style wrist camera mounted at the CR5 end flange. The simulated RGB and depth sensors are co-located at the lens/front face, while the Gazebo plugins publish `frameName=wrist_rgbd_camera_optical_frame`. The optical frame uses the ROS camera convention: z forward, x right, y down.
+
+The optical-frame fixed joint currently uses:
+
+```text
+wrist_rgbd_camera_link -> wrist_rgbd_camera_optical_frame
+origin: xyz="0.04 0 0" rpy="-1.5708 0 -1.5708"
+```
+
+Gazebo rendering note:
+
+- Start the TurboVNC desktop before camera verification so `DISPLAY=:1` is available.
+- Pure headless Gazebo disables camera/depth rendering, which prevents the RGB-D topics from carrying useful frames.
 
 ## Expected Topics
 
@@ -126,11 +142,11 @@ Detection params:
 | `image_timeout` | `5.0` |
 | `tf_timeout` | `2.0` |
 
-## Needs Verification
+## Latest Verified Status
 
-- Confirm wrist topics publish after a clean `run-cr5-gazebo`.
-- Confirm RGB image shows the colored boxes after spawning.
-- Confirm the observation pose sees all three boxes.
-- Confirm the camera optical orientation produces sensible projected 3D points.
-- Confirm TF can transform from the camera frame to `dummy_link`.
-
+- Wrist topics publish after `run-cr5-gazebo` when the TurboVNC display is running.
+- From the observation workflow, the RGB image contains red, yellow, and green boxes.
+- `detect_color_once.py red` succeeded in the 2026-05-17 runtime pass.
+- Topic commands `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` completed through MoveIt/Gazebo in the 2026-05-17 runtime pass.
+- After the verified red/yellow/green moves, `Link6` stayed around `z=0.575 m`, safely above the tabletop boxes.
+- TF from `world`/`dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.

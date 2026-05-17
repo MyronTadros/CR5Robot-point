@@ -100,7 +100,7 @@ This avoids mixing simulation-only controller infrastructure into the normal dis
 
 ## D009 - Use Effort Trajectory Control In Gazebo
 
-Status: provisional; not accepted yet
+Status: confirmed for current simulation demo
 
 Decision:
 
@@ -112,7 +112,7 @@ The position-interface Gazebo path exposed a trajectory action but was not suffi
 
 Runtime update:
 
-Effort control now loads and claims the joints in the clean Gazebo baseline. The clean URDF preserves the original CR5 chain, normal joint bounds, and CAD inertials while adding the Gazebo-only anchor, effort transmissions, Gazebo ROS control plugin, and wrist camera. Physical acceptance still fails: the initial hold trajectory aborted with finite but unstable joint feedback and saturated efforts. Continue Gazebo dynamics/controller tuning before returning to camera or color pointing work.
+Effort control loads and claims the joints in the merged Gazebo baseline. The current URDF preserves the original CR5 chain, normal joint bounds, and CAD inertials while adding the Gazebo-only anchor, effort transmissions, Gazebo ROS control plugin, and wrist camera. The 2026-05-11 runtime pass accepted this setup for the color-pointing demo: startup completed with gravity ON, scan/color/home trajectories reported controller status `3`, and `home` returned to near-zero joints.
 
 ## D010 - Documentation Must Track Behavior
 
@@ -125,3 +125,90 @@ Every future behavior change should update relevant docs, changelog, current sta
 Reason:
 
 This project depends on many compatibility details that are easy to forget between sessions.
+
+## D011 - Use Main-Branch VX500-Style Wrist Camera Mount
+
+Status: confirmed
+
+Decision:
+
+Use the merged main-branch Gazebo wrist camera transform from `Link6` to `wrist_rgbd_camera_link`:
+
+```text
+xyz="0 -0.055 0"
+rpy="1.5708 -1.5708 0"
+```
+
+Keep `wrist_rgbd_camera_optical_frame` as the Gazebo plugin frame and retain the standard ROS optical-frame fixed rotation.
+
+Reason:
+
+This camera geometry was runtime verified after the 2026-05-11 merge: scan images contained all three colored boxes, RGB-D detections transformed to tabletop-height points, and the full color command sequence completed with fallbacks disabled.
+
+## D012 - Keep Wrist Camera Down For Above-Box Moves
+
+Status: confirmed
+
+Decision:
+
+Use `above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]` for color moves and keep `motion/center_camera_over_box: true`.
+
+Reason:
+
+With the merged VX500-style wrist camera mount, the previous above-box orientation could place `Link6` above the cube while rotating the camera toward the sky. The new orientation keeps `wrist_rgbd_camera_optical_frame` pointing downward, and the centering option compensates for the fixed camera offset from `Link6` so the camera frame stays over the detected box.
+
+Runtime update:
+
+On 2026-05-11, `scan` followed by `Move above red.` completed through the real trajectory controller with simulated fallbacks disabled. The post-move camera frame was near `world x=0.452, y=-0.239, z=0.285`, optical +Z in world was `[-0.033, 0.007, -0.999]`, and the RGB image still contained the red box.
+
+## D013 - Add Real-Gripper Clearance For Above-Box Poses
+
+Status: confirmed
+
+Decision:
+
+Keep the original `motion/safety_height: 0.25` and add `motion/above_box_extra_clearance: 0.25` for final above-box camera targets.
+
+Reason:
+
+The physical bringup robot has a gripper at the end effector. The demo should leave additional room between the end-effector assembly and the boxes, so the final camera target is intentionally higher than the earlier simulation-only pose.
+
+Runtime update:
+
+On 2026-05-11, the high-clearance `Move above red.` target completed through the real simulation trajectory controller. The post-move camera frame was near `world x=0.458, y=-0.240, z=0.535`, about `0.25 m` higher than the previous above-red camera pose, and the camera optical +Z axis still pointed down.
+
+## D014 - Skip Redundant Scan Moves Before Color Detection
+
+Status: confirmed
+
+Decision:
+
+When `observation_joints` are the active scan behavior, skip the scan trajectory if live `/joint_states` are already within `motion/scan_joint_tolerance` of the scan joints.
+
+Reason:
+
+After an explicit `scan`, the next color command was spending a full single-point trajectory duration on a no-op scan move before detection. Skipping the no-op keeps the physical command flow responsive while preserving the rule that detection starts from the observation pose.
+
+Runtime update:
+
+On 2026-05-11, after `scan`, `Move above red.` skipped the redundant scan trajectory with max joint error `0.0186 rad` against a `0.035 rad` tolerance. Detection started immediately and the above-red trajectory was sent about `0.5 s` after the command was received.
+
+## D015 - Use Co-Located RGB And Depth Gazebo Sensors For Wrist Camera
+
+Status: confirmed for simulation
+
+Decision:
+
+In `cr5_robot_gazebo.urdf`, preserve the fixed wrist-camera joint, place the optical frame and simulated sensors at the lens/front face, and use co-located Gazebo RGB and depth sensors for the wrist camera.
+
+Reason:
+
+Runtime verification on 2026-05-17 showed three separate simulation issues that build checks did not catch:
+
+- Gazebo fixed-joint lumping removed `wrist_rgbd_camera_link`, which prevented the wrist sensor from existing.
+- Pure headless Gazebo disabled camera rendering; TurboVNC display `:1` is required for RGB-D simulation.
+- A depth sensor's RGB stream was grayscale, so HSV color detection needed a normal RGB camera sensor while depth remained available from the depth sensor.
+
+Runtime update:
+
+With the fixed joint preserved, Gazebo plugin paths exported, and co-located RGB/depth sensors at the lens/front face, the 2026-05-17 pass published wrist RGB-D topics and completed `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` through MoveIt/Gazebo.

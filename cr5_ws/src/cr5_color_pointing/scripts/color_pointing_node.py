@@ -5,6 +5,7 @@ import re
 import select
 import sys
 import threading
+import time
 
 import actionlib
 from actionlib_msgs.msg import GoalStatus
@@ -29,7 +30,12 @@ class ColorPointingNode(object):
         self.group_name = rospy.get_param("~moveit/planning_group", "cr5_arm")
         self.end_effector_link = rospy.get_param("~moveit/end_effector_link", "Link6")
         self.configured_frame = rospy.get_param("~frames/planning_frame", "world")
+        self.camera_frame = rospy.get_param("~frames/camera_frame", "wrist_rgbd_camera_optical_frame")
         self.safety_height = float(rospy.get_param("~motion/safety_height", 0.25))
+        self.above_box_extra_clearance = float(rospy.get_param("~motion/above_box_extra_clearance", 0.25))
+        if self.above_box_extra_clearance < 0.0:
+            rospy.logwarn("Negative above_box_extra_clearance requested; using 0.0 instead.")
+            self.above_box_extra_clearance = 0.0
         self.ground_plane_z = float(rospy.get_param("~scene/ground_plane_z", 0.0))
         self.cube_size = float(rospy.get_param("~scene/cube_size", 0.05))
         self.max_tabletop_detection_z = float(rospy.get_param("~scene/max_tabletop_detection_z", 0.20))
@@ -38,12 +44,18 @@ class ColorPointingNode(object):
             rospy.get_param("~scene/allow_simulated_detection_fallback", True)
         )
         self.configured_boxes = rospy.get_param("~scene/boxes", {})
-        self.scan_target_link = rospy.get_param("~motion/scan_target_link", "wrist_rgbd_camera_optical_frame")
+        self.scan_target_link = rospy.get_param("~motion/scan_target_link", "Link6")
         self.scan_position = rospy.get_param("~motion/scan_position", None)
         self.scan_orientation = rospy.get_param("~motion/scan_orientation_xyzw", None)
+        self.above_box_orientation = rospy.get_param(
+            "~motion/above_box_orientation_xyzw",
+            self.scan_orientation or [0.7071068, -0.7071068, 0.0, 0.0],
+        )
+        self.center_camera_over_box = bool(rospy.get_param("~motion/center_camera_over_box", True))
         self.scan_link6_position = rospy.get_param("~motion/scan_link6_position", None)
         self.scan_link6_orientation = rospy.get_param("~motion/scan_link6_orientation_xyzw", None)
         self.observation_joints = rospy.get_param("~motion/observation_joints", [0.0, -0.8, 1.2, 0.0, 1.1, 0.0])
+        self.scan_joint_tolerance = float(rospy.get_param("~motion/scan_joint_tolerance", 0.035))
         self.home_state = rospy.get_param("~motion/home_state", "home")
         self.home_joints = rospy.get_param("~motion/home_joints", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.execution_mode = rospy.get_param("~motion/execution_mode", "auto").lower()
@@ -56,11 +68,15 @@ class ColorPointingNode(object):
             "/cr5_joint_trajectory_controller/follow_joint_trajectory",
         )
         self.controller_wait_margin = float(rospy.get_param("~motion/controller_wait_margin", 4.0))
+        self.joint_state_timeout = float(rospy.get_param("~motion/joint_state_timeout", 5.0))
+        self.joint_state_max_age = float(rospy.get_param("~motion/joint_state_max_age", 1.0))
         self.use_single_point_trajectories = bool(rospy.get_param("~motion/use_single_point_trajectories", True))
         self.single_point_duration = float(rospy.get_param("~motion/single_point_duration", 8.0))
         self.command_topic = rospy.get_param("~command_topic", "/cr5_color_pointing/command")
         self.joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
         self.last_commanded_joints = [0.0] * 6
+        self.current_joint_positions = None
+        self.current_joint_stamp = rospy.Time(0)
         self.gazebo_joint_fallback_enabled = self.execution_mode in ("auto", "gazebo")
 
         self.robot = moveit_commander.RobotCommander()
@@ -88,6 +104,8 @@ class ColorPointingNode(object):
         self.tf_buffer = tf2_ros.Buffer()
         self.detector = ColorDepthDetector(tf_buffer=self.tf_buffer)
         self.command_lock = threading.Lock()
+        self.joint_state_lock = threading.Lock()
+        self.joint_state_sub = rospy.Subscriber("/joint_states", JointState, self._joint_state_cb, queue_size=1)
         self.command_sub = rospy.Subscriber(self.command_topic, String, self._command_topic_cb, queue_size=1)
         self.trajectory_client = actionlib.SimpleActionClient(
             self.controller_action,
@@ -143,6 +161,22 @@ class ColorPointingNode(object):
     def _command_topic_cb(self, msg):
         with self.command_lock:
             self.handle_command(msg.data)
+
+    def _joint_state_cb(self, msg):
+        if not msg.name or not msg.position:
+            return
+
+        by_name = {}
+        for index, name in enumerate(msg.name):
+            if index < len(msg.position):
+                by_name[name] = float(msg.position[index])
+
+        if any(name not in by_name for name in self.joint_names):
+            return
+
+        with self.joint_state_lock:
+            self.current_joint_positions = [by_name[name] for name in self.joint_names]
+            self.current_joint_stamp = msg.header.stamp
 
     def handle_command(self, text):
         action = self._parse_command(text)
@@ -225,6 +259,18 @@ class ColorPointingNode(object):
         return self.move_to_pose(target_pose)
 
     def move_to_scan_pose(self):
+        if self.scan_position and self.scan_orientation:
+            return self.move_to_scan_pose_target(
+                self.scan_position,
+                self.scan_orientation,
+                self.scan_target_link,
+            )
+        if self.scan_link6_position and self.scan_link6_orientation:
+            return self.move_to_scan_pose_target(
+                self.scan_link6_position,
+                self.scan_link6_orientation,
+                self.end_effector_link,
+            )
         rospy.loginfo("Moving to observation_joints for wrist-camera scan.")
         return self.move_to_observation_pose()
 
@@ -252,8 +298,8 @@ class ColorPointingNode(object):
             pose.pose.position.z,
             pose.header.frame_id,
         )
-        self.group.clear_pose_targets()
-        self.group.set_start_state_to_current_state()
+        if not self._prepare_for_planning("scan pose"):
+            return False
         try:
             self.group.set_pose_target(pose, target_link)
         except Exception as exc:
@@ -266,9 +312,22 @@ class ColorPointingNode(object):
         if len(self.observation_joints) != 6:
             rospy.logerr("Observation joint list must contain 6 values.")
             return False
-        self.group.clear_pose_targets()
-        self.group.set_start_state_to_current_state()
         joints = [float(v) for v in self.observation_joints]
+        if not self._wait_for_current_joint_state("observation pose"):
+            return False
+        current_joints, _stamp = self._latest_joint_state()
+        if self._joints_close(current_joints, joints, self.scan_joint_tolerance):
+            max_error = max(self._joint_abs_errors(current_joints, joints))
+            self.last_commanded_joints = current_joints
+            rospy.loginfo(
+                "Already within %.3f rad of observation_joints; skipping redundant scan move "
+                "(max joint error %.4f rad).",
+                self.scan_joint_tolerance,
+                max_error,
+            )
+            return True
+        if not self._prepare_for_planning("observation pose", wait_for_joint_state=False):
+            return False
         try:
             self.group.set_joint_value_target(joints)
         except Exception as exc:
@@ -277,40 +336,148 @@ class ColorPointingNode(object):
         return self._plan_and_send_to_controller("observation pose", fallback_joints=joints)
 
     def return_home(self):
-        rospy.loginfo("Returning home.")
-        self.group.clear_pose_targets()
-        self.group.set_start_state_to_current_state()
+        if len(self.home_joints) != 6:
+            rospy.logerr("Home joint list must contain 6 values.")
+            return False
+
+        rospy.loginfo("Returning to configured launch/home joints.")
+        if not self._prepare_for_planning("home"):
+            return False
+        joints = [float(v) for v in self.home_joints]
         try:
-            self.group.set_named_target(self.home_state)
-        except Exception:
-            rospy.logwarn("Named target '%s' unavailable; using configured home_joints.", self.home_state)
-            self.group.set_joint_value_target([float(v) for v in self.home_joints])
-        return self._plan_and_send_to_controller("home", fallback_joints=[float(v) for v in self.home_joints])
+            self.group.set_joint_value_target(joints)
+        except Exception as exc:
+            rospy.logerr("Home joint target is invalid or outside MoveIt limits: %s", exc)
+            return False
+        return self._plan_and_send_to_controller("home", fallback_joints=joints)
 
     def _make_above_box_pose(self, target_point):
-        min_clearance_z = self.ground_plane_z + self.cube_size + self.safety_height
+        min_clearance_z = self._minimum_above_box_camera_z()
+        orientation = self.above_box_orientation
+        if len(orientation) != 4:
+            rospy.logwarn("Invalid above-box orientation; using downward wrist-camera orientation.")
+            orientation = [0.7071068, -0.7071068, 0.0, 0.0]
+        orientation = self._normalize_quaternion(orientation)
+
+        desired_camera_position = [
+            target_point.point.x,
+            target_point.point.y,
+            min_clearance_z,
+        ]
+        link6_position = list(desired_camera_position)
+        if self.center_camera_over_box:
+            camera_offset = self._camera_offset_in_end_effector()
+            world_offset = self._rotate_vector_by_quaternion(camera_offset, orientation)
+            link6_position = [
+                desired_camera_position[0] - world_offset[0],
+                desired_camera_position[1] - world_offset[1],
+                desired_camera_position[2] - world_offset[2],
+            ]
+            rospy.loginfo(
+                "Centering %s above box: camera target x=%.3f y=%.3f z=%.3f, "
+                "%s target x=%.3f y=%.3f z=%.3f.",
+                self.camera_frame,
+                desired_camera_position[0],
+                desired_camera_position[1],
+                desired_camera_position[2],
+                self.end_effector_link,
+                link6_position[0],
+                link6_position[1],
+                link6_position[2],
+            )
 
         pose = PoseStamped()
         pose.header.stamp = rospy.Time.now()
         pose.header.frame_id = target_point.header.frame_id or self.target_frame
-        pose.pose.position.x = target_point.point.x
-        pose.pose.position.y = target_point.point.y
-        pose.pose.position.z = min_clearance_z
-        pose.pose.orientation.w = 1.0
+        pose.pose.position.x = link6_position[0]
+        pose.pose.position.y = link6_position[1]
+        pose.pose.position.z = link6_position[2]
+        pose.pose.orientation.x = float(orientation[0])
+        pose.pose.orientation.y = float(orientation[1])
+        pose.pose.orientation.z = float(orientation[2])
+        pose.pose.orientation.w = float(orientation[3])
         return pose
 
+    def _normalize_quaternion(self, orientation):
+        values = [float(v) for v in orientation]
+        norm = sum(v * v for v in values) ** 0.5
+        if norm < 1e-9:
+            rospy.logwarn("Above-box orientation has near-zero norm; using downward wrist-camera orientation.")
+            return [0.7071068, -0.7071068, 0.0, 0.0]
+        return [v / norm for v in values]
+
+    def _camera_offset_in_end_effector(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.end_effector_link,
+                self.camera_frame,
+                rospy.Time(0),
+                rospy.Duration(1.0),
+            )
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as exc:
+            rospy.logwarn(
+                "Could not lookup %s -> %s camera offset; using zero offset: %s",
+                self.end_effector_link,
+                self.camera_frame,
+                exc,
+            )
+            return [0.0, 0.0, 0.0]
+
+        return [
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+            transform.transform.translation.z,
+        ]
+
+    def _rotate_vector_by_quaternion(self, vector, orientation):
+        qx, qy, qz, qw = orientation
+        vx, vy, vz = [float(v) for v in vector]
+        tx = 2.0 * (qy * vz - qz * vy)
+        ty = 2.0 * (qz * vx - qx * vz)
+        tz = 2.0 * (qx * vy - qy * vx)
+        return [
+            vx + qw * tx + (qy * tz - qz * ty),
+            vy + qw * ty + (qz * tx - qx * tz),
+            vz + qw * tz + (qx * ty - qy * tx),
+        ]
+
     def move_to_pose(self, pose):
-        if pose.pose.position.z < self.ground_plane_z + self.cube_size + self.safety_height:
+        if pose.pose.position.z < self._minimum_above_box_camera_z():
             rospy.logerr("Refusing unsafe target z=%.3f.", pose.pose.position.z)
             return False
 
-        self.group.clear_pose_targets()
-        self.group.set_start_state_to_current_state()
-        self.group.set_position_target(
-            [pose.pose.position.x, pose.pose.position.y, pose.pose.position.z],
-            self.end_effector_link,
-        )
+        if not self._prepare_for_planning("pose target"):
+            return False
+        try:
+            self.group.set_pose_target(pose, self.end_effector_link)
+        except Exception as exc:
+            rospy.logerr("Pose target is invalid: %s", exc)
+            return False
         return self._plan_and_send_to_controller("pose target")
+
+    def _minimum_above_box_camera_z(self):
+        return self.ground_plane_z + self.cube_size + self.safety_height + self.above_box_extra_clearance
+
+    def _prepare_for_planning(self, label, wait_for_joint_state=True):
+        self.group.clear_pose_targets()
+        if wait_for_joint_state and not self._wait_for_current_joint_state(label):
+            return False
+        try:
+            self.group.set_start_state_to_current_state()
+        except Exception as exc:
+            rospy.logerr("Could not set MoveIt start state for %s: %s", label, exc)
+            return False
+        return True
+
+    def _joint_abs_errors(self, current, target):
+        if current is None or len(current) != len(target):
+            return [float("inf")]
+        return [abs(float(a) - float(b)) for a, b in zip(current, target)]
+
+    def _joints_close(self, current, target, tolerance):
+        if tolerance < 0.0:
+            return False
+        return max(self._joint_abs_errors(current, target)) <= tolerance
 
     def _plan_and_send_to_controller(self, label, fallback_joints=None):
         try:
@@ -338,11 +505,9 @@ class ColorPointingNode(object):
         self.group.stop()
         self.group.clear_pose_targets()
         if ok:
-            try:
-                self.last_commanded_joints = [float(v) for v in self.group.get_current_joint_values()]
-            except Exception:
-                self.last_commanded_joints = [float(v) for v in points[-1].positions]
-            return True
+            if self._record_current_joint_state(label):
+                return True
+            rospy.logerr("Could not confirm fresh joint state after %s.", label)
 
         return self._gazebo_joint_fallback(fallback_joints or [], label)
 
@@ -368,24 +533,63 @@ class ColorPointingNode(object):
             wait_time,
         )
         self.trajectory_client.send_goal(goal)
-        rospy.sleep(rospy.Duration(duration + 1.0))
-        finished = self.trajectory_client.wait_for_result(rospy.Duration(max(0.5, self.controller_wait_margin)))
+        finished = self.trajectory_client.wait_for_result(rospy.Duration(wait_time))
         state = self.trajectory_client.get_state()
-        if not finished and state in (GoalStatus.PENDING, GoalStatus.ACTIVE):
-            rospy.logwarn(
-                "%s trajectory did not report completion before timeout; cancelling and continuing after timed motion.",
-                label,
-            )
+        if not finished:
+            rospy.logerr("%s trajectory did not finish before timeout; cancelling goal.", label)
             self.trajectory_client.cancel_goal()
-            return True
+            return False
         if state == GoalStatus.SUCCEEDED:
             return True
 
-        rospy.logwarn(
-            "%s trajectory ended with action state %s; continuing only if the physical motion completed.",
+        rospy.logerr(
+            "%s trajectory ended with action state %s.",
             label,
             state,
         )
+        return False
+
+    def _latest_joint_state(self):
+        with self.joint_state_lock:
+            if self.current_joint_positions is None:
+                return None, rospy.Time(0)
+            return list(self.current_joint_positions), self.current_joint_stamp
+
+    def _is_fresh_joint_state(self, stamp):
+        if self.joint_state_max_age <= 0.0:
+            return True
+        if stamp == rospy.Time(0):
+            return True
+
+        now = rospy.Time.now()
+        if now == rospy.Time(0):
+            return True
+
+        age = (now - stamp).to_sec()
+        return age <= self.joint_state_max_age
+
+    def _wait_for_current_joint_state(self, label):
+        deadline = time.time() + max(0.1, self.joint_state_timeout)
+        while not rospy.is_shutdown() and time.time() < deadline:
+            positions, stamp = self._latest_joint_state()
+            if positions is not None and self._is_fresh_joint_state(stamp):
+                return True
+            time.sleep(0.05)
+
+        rospy.logerr(
+            "Timed out waiting for fresh /joint_states before %s. "
+            "Check joint_state_controller and Gazebo physics.",
+            label,
+        )
+        return False
+
+    def _record_current_joint_state(self, label):
+        if not self._wait_for_current_joint_state("%s completion" % label):
+            return False
+        positions, _stamp = self._latest_joint_state()
+        if positions is None:
+            return False
+        self.last_commanded_joints = positions
         return True
 
     def _single_point_trajectory(self, plan):
