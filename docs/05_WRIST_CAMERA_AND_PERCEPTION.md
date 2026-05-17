@@ -13,10 +13,11 @@ wrist_rgbd_camera
 wrist_rgbd_camera_controller
 ```
 
-Gazebo plugin:
+Gazebo plugins:
 
 ```text
-libgazebo_ros_openni_kinect.so
+libgazebo_ros_camera.so
+libgazebo_ros_depth_camera.so
 ```
 
 The camera is fixed to:
@@ -27,14 +28,19 @@ child:  wrist_rgbd_camera_link
 origin: xyz="0 -0.055 0" rpy="1.5708 -1.5708 0"
 ```
 
-The merged camera geometry approximates a VX500-style wrist camera mounted at the CR5 end flange. The depth sensor is attached to `wrist_rgbd_camera_link`, while the Gazebo plugin publishes `frameName=wrist_rgbd_camera_optical_frame`. The optical frame uses the ROS camera convention: z forward, x right, y down.
+The merged camera geometry approximates a VX500-style wrist camera mounted at the CR5 end flange. The simulated RGB and depth sensors are co-located at the lens/front face, while the Gazebo plugins publish `frameName=wrist_rgbd_camera_optical_frame`. The optical frame uses the ROS camera convention: z forward, x right, y down.
 
 The optical-frame fixed joint currently uses:
 
 ```text
 wrist_rgbd_camera_link -> wrist_rgbd_camera_optical_frame
-origin: xyz="0 0 0" rpy="-1.5708 0 -1.5708"
+origin: xyz="0.04 0 0" rpy="-1.5708 0 -1.5708"
 ```
+
+Gazebo rendering note:
+
+- Start the TurboVNC desktop before camera verification so `DISPLAY=:1` is available.
+- Pure headless Gazebo disables camera/depth rendering, which prevents the RGB-D topics from carrying useful frames.
 
 ## Expected Topics
 
@@ -138,11 +144,9 @@ Detection params:
 
 ## Latest Verified Status
 
-- Wrist topics publish after `run-cr5-gazebo`.
-- From `scan`, the RGB image contains red, yellow, and green boxes.
-- Latest image sample after scan: red `2418` broad-mask pixels, yellow `1806`, green `2463`.
-- Depth from scan is plausible for the ground-plane boxes, with center depth around `0.706 m`.
-- `detect_color_once.py` detects all three colors and transforms them to tabletop-height points in `dummy_link`.
-- The launched command node logs transformed tabletop-height points in `world`.
-- After the latest high-clearance `Move above red.`, the camera frame was near `world x=0.458, y=-0.240, z=0.535` with optical +Z `[-0.032, 0.007, -0.999]` in `world`, so the above-box pose keeps the wrist camera high and looking down instead of at the sky.
+- Wrist topics publish after `run-cr5-gazebo` when the TurboVNC display is running.
+- From the observation workflow, the RGB image contains red, yellow, and green boxes.
+- `detect_color_once.py red` succeeded in the 2026-05-17 runtime pass.
+- Topic commands `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` completed through MoveIt/Gazebo in the 2026-05-17 runtime pass.
+- After the verified red/yellow/green moves, `Link6` stayed around `z=0.575 m`, safely above the tabletop boxes.
 - TF from `world`/`dummy_link` to `wrist_rgbd_camera_optical_frame` is available during runtime after robot state publication starts.

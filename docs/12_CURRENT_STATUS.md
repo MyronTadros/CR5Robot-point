@@ -1,6 +1,25 @@
 # Current Status
 
-Last documentation update: 2026-05-11
+Last documentation update: 2026-05-17
+
+## Latest Update From Simulation Verification
+
+Confirmed in the 2026-05-17 Docker/Gazebo runtime pass on `fix/camera-position-fix`:
+
+- Source Control backup-file noise was from untracked timestamped `*.backup_before_*` and `*.backup_offsets_*` files; these are now ignored by `.gitignore`.
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- Gazebo camera rendering required the TurboVNC display `DISPLAY=:1`; purely headless Gazebo disabled depth-camera rendering.
+- `gazebo.launch` now exports Gazebo plugin paths needed by ROS camera plugins.
+- Gazebo preserved `wrist_rgbd_camera_link` and `wrist_rgbd_camera_joint` instead of lumping the fixed camera link away.
+- The wrist camera publishes `/wrist_rgbd/rgb/image_raw`, `/wrist_rgbd/rgb/camera_info`, `/wrist_rgbd/depth/image_raw`, `/wrist_rgbd/depth/camera_info`, and `/wrist_rgbd/depth/points`.
+- The simulated wrist camera uses co-located RGB and depth sensors at the lens/front face so HSV detection sees real color while depth remains available.
+- Colored boxes spawned successfully at the configured tabletop positions.
+- From the observation workflow, the RGB image contained red, yellow, and green masks.
+- `detect_color_once.py red` succeeded during the run.
+- `Move above red.` completed; after the move `Link6` was near `dummy_link x=0.404, y=-0.240, z=0.577` while the red box was at `world x=0.45, y=-0.25, z=0.025`.
+- `Move above yellow.` completed; after the move `Link6` was near `dummy_link x=0.502, y=0.005, z=0.575` while yellow was configured at `x=0.55, y=0.0`.
+- `Move above green.` completed; after the move `Link6` was near `dummy_link x=0.401, y=0.249, z=0.576` while green was configured at `x=0.45, y=0.25`.
+- `Return home.` completed and returned joints to near zero.
 
 ## Latest Update From Gripper Clearance And Scan-Skip Fix
 

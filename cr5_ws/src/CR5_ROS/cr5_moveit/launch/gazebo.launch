@@ -11,6 +11,10 @@
   <arg name="initial_joint5" default="0.0"/>
   <arg name="initial_joint6" default="0.0"/>
 
+  <!-- Let Gazebo camera ROS plugins resolve Gazebo sensor plugin dependencies. -->
+  <env name="GAZEBO_PLUGIN_PATH" value="$(optenv GAZEBO_PLUGIN_PATH):/opt/ros/melodic/lib:/usr/lib/x86_64-linux-gnu/gazebo-9/plugins"/>
+  <env name="LD_LIBRARY_PATH" value="$(optenv LD_LIBRARY_PATH):/usr/lib/x86_64-linux-gnu/gazebo-9/plugins"/>
+
   <!-- startup simulated world -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" default="worlds/empty.world"/>

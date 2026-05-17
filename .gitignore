@@ -4,6 +4,8 @@
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+*.backup_before_*
+*.backup_offsets_*
 
 # ROS/catkin build products
 cr5_ws/build/

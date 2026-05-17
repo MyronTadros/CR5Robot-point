@@ -2,6 +2,26 @@
 
 Meaningful project changes should be recorded here.
 
+## 2026-05-17 - Verified Simulation Wrist-Camera Color Pointing
+
+Status: verified locally in Docker/Gazebo
+
+Changes:
+
+- Added `.gitignore` rules for timestamped local backup files.
+- Updated `cr5_moveit/launch/gazebo.launch` so Gazebo can load ROS camera plugins and their Gazebo sensor dependencies.
+- Preserved the fixed wrist-camera joint in Gazebo so `wrist_rgbd_camera_link` is not lumped away.
+- Moved the simulated camera optical frame/sensors to the lens/front face.
+- Split the simulated wrist camera into co-located RGB and depth sensors so HSV detection uses a true color image while depth remains available.
+
+Validation:
+
+- `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
+- TurboVNC display `:1` was required for Gazebo camera rendering.
+- Wrist RGB, depth, camera-info, and point-cloud topics published.
+- Colored boxes spawned successfully.
+- `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` completed through MoveIt/Gazebo.
+
 ## 2026-05-11 - Extra Gripper Clearance And Scan-Skip Latency Fix
 
 Status: implemented, build passed, runtime verified for red

@@ -192,3 +192,23 @@ After an explicit `scan`, the next color command was spending a full single-poin
 Runtime update:
 
 On 2026-05-11, after `scan`, `Move above red.` skipped the redundant scan trajectory with max joint error `0.0186 rad` against a `0.035 rad` tolerance. Detection started immediately and the above-red trajectory was sent about `0.5 s` after the command was received.
+
+## D015 - Use Co-Located RGB And Depth Gazebo Sensors For Wrist Camera
+
+Status: confirmed for simulation
+
+Decision:
+
+In `cr5_robot_gazebo.urdf`, preserve the fixed wrist-camera joint, place the optical frame and simulated sensors at the lens/front face, and use co-located Gazebo RGB and depth sensors for the wrist camera.
+
+Reason:
+
+Runtime verification on 2026-05-17 showed three separate simulation issues that build checks did not catch:
+
+- Gazebo fixed-joint lumping removed `wrist_rgbd_camera_link`, which prevented the wrist sensor from existing.
+- Pure headless Gazebo disabled camera rendering; TurboVNC display `:1` is required for RGB-D simulation.
+- A depth sensor's RGB stream was grayscale, so HSV color detection needed a normal RGB camera sensor while depth remained available from the depth sensor.
+
+Runtime update:
+
+With the fixed joint preserved, Gazebo plugin paths exported, and co-located RGB/depth sensors at the lens/front face, the 2026-05-17 pass published wrist RGB-D topics and completed `Move above red.`, `Move above yellow.`, `Move above green.`, and `Return home.` through MoveIt/Gazebo.
