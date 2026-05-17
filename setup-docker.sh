@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 IMAGE_NAME="cr5-ros-melodic-turbovnc:local"
 CONTAINER_NAME="cr5ros"
-STUDIO_DIR="/home/mo-sameh1/Documents/GitHub/CR5Robot-point"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+STUDIO_DIR="${SCRIPT_DIR}"
 WS_DIR="${STUDIO_DIR}/cr5_ws"
 BUILD_DIR="${STUDIO_DIR}/cr5_docker_build"
 BIN_DIR="${HOME}/.local/bin"

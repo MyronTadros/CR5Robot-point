@@ -2,6 +2,48 @@
 
 Meaningful project changes should be recorded here.
 
+## 2026-05-17 - Main Branch Submission Wording
+
+Status: documented
+
+Changes:
+
+- Updated the root `README.md` to identify `main` as the software stack branch for the verified Gazebo/MoveIt color-pointing demo.
+- Documented `hardware-demo` as the hardware stack branch for real CR5 integration.
+
+Validation:
+
+- Documentation-only change; no ROS rebuild required.
+
+## 2026-05-17 - README Submission Polish
+
+Status: documented
+
+Changes:
+
+- Added a concise Quick Start section to the root `README.md`.
+- Clarified that commands should run from the repository root and that `/teamspace/studios/this_studio` is the Lightning default path, not a required clone location.
+- Replaced several host-specific README paths with repository-relative paths.
+- Clarified the difference between `run-cr5-camera-rqt` for TurboVNC viewing and `run-cr5-camera-web` for the browser stream on port `8080`.
+
+Validation:
+
+- Documentation-only change; no ROS rebuild required.
+
+## 2026-05-17 - Portable Docker Setup Path
+
+Status: implemented, script syntax/help verified
+
+Changes:
+
+- Updated `setup-docker.sh` to derive the project root from the script location instead of a developer-specific absolute path.
+- The generated `cr5-ensure-container` helper now records the current clone's `cr5_ws` path when setup is run, so fresh GitHub checkouts can initialize Docker from their own location.
+
+Validation:
+
+- `bash -n setup-docker.sh` passed.
+- `./setup-docker.sh --help` completed successfully.
+
 ## 2026-05-17 - Verified Simulation Wrist-Camera Color Pointing
 
 Status: verified locally in Docker/Gazebo

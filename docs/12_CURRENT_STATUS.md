@@ -4,8 +4,10 @@ Last documentation update: 2026-05-17
 
 ## Latest Update From Simulation Verification
 
-Confirmed in the 2026-05-17 Docker/Gazebo runtime pass on `fix/camera-position-fix`:
+Confirmed in the 2026-05-17 Docker/Gazebo runtime pass before submission to `main`:
 
+- Root `README.md` now identifies `main` as the software stack branch and `hardware-demo` as the hardware stack branch for submission.
+- Root `README.md` is polished for submission with a Quick Start, repository-relative setup examples, and explicit camera browser-stream instructions.
 - Source Control backup-file noise was from untracked timestamped `*.backup_before_*` and `*.backup_offsets_*` files; these are now ignored by `.gitignore`.
 - `catkin_make -DCMAKE_BUILD_TYPE=Release` passed.
 - Gazebo camera rendering required the TurboVNC display `DISPLAY=:1`; purely headless Gazebo disabled depth-camera rendering.
@@ -125,7 +127,7 @@ Known non-blocking runtime noise:
 
 Confirmed:
 
-- active workspace path in this session: `/home/mo-sameh1/Documents/GitHub/CR5Robot-point`,
+- active workspace path in this session: `/teamspace/studios/this_studio`,
 - `AGENTS.md` exists,
 - root `README.md` exists,
 - `docs/` exists,
@@ -133,6 +135,7 @@ Confirmed:
 - `cr5_ws/src/cr5_color_pointing` exists,
 - the active git repository is the workspace root,
 - `cr5_ws/src/CR5_ROS` is not a separate nested git repository in this checkout,
+- `setup-docker.sh` derives the workspace path from its own location instead of a developer-specific absolute path,
 - Docker image `cr5-ros-melodic-turbovnc:local` exists,
 - Docker container `cr5ros` exists and can be started by `cr5-ensure-container`,
 - TurboVNC/noVNC desktop starts successfully.

@@ -1,10 +1,52 @@
 # Dobot CR5 — Wrist-Camera Color Pointing Demo
 
-> **Branch:** `fix/camera-position-fix` — Gazebo simulation, fully verified  
-> **Hardware branch:** `feat/hardware-demo` (builds on top of this branch)  
+> **Branch:** `main` — software stack, Gazebo simulation, fully verified  
+> **Hardware branch:** `hardware-demo` — real CR5 hardware stack  
 > **Stack:** Ubuntu 18.04 · ROS Melodic · Gazebo Classic 9 · MoveIt 1 · TurboVNC
 
 The robot moves to a joint-space observation pose, detects red/yellow/green boxes on the ground plane using its wrist-mounted RGB-D camera and HSV thresholding, and moves safely **above** the requested box with MoveIt. No gripping.
+
+Run commands from the repository root unless a section says otherwise. On Lightning AI the root is usually `/teamspace/studios/this_studio`; if you cloned the project somewhere else, use that clone path instead.
+
+---
+
+## Quick Start
+
+Use this path after cloning the repository or after Docker state was reset:
+
+```bash
+./setup-docker.sh
+source ~/.bashrc
+start-cr5-desktop
+```
+
+Forward port `5901`, connect TurboVNC Viewer to `localhost::5901`, then launch the simulation:
+
+```bash
+run-cr5-gazebo
+```
+
+In another terminal, spawn the boxes and start the command node:
+
+```bash
+docker exec -it cr5ros bash -lc \
+  'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing spawn_colored_boxes.launch'
+
+docker exec -it cr5ros bash -lc \
+  'source /usr/local/bin/cr5-env && roslaunch cr5_color_pointing color_pointing.launch'
+```
+
+Then send commands at the `cr5>` prompt:
+
+```text
+scan
+red
+yellow
+green
+home
+```
+
+For the full verification flow, use the detailed sequence below.
 
 ---
 
@@ -12,11 +54,10 @@ The robot moves to a joint-space observation pose, detects red/yellow/green boxe
 
 | Branch | Purpose |
 |---|---|
-| `fix/camera-position-fix` | **This branch** — simulation fully verified, camera position fixed |
-| `feat/hardware-demo` | Real CR5 hardware + Gazebo shadow; extends this branch |
-| `main` | Baseline camera-added commit |
+| `main` | **Software stack** — Docker, Gazebo simulation, wrist RGB-D perception, and MoveIt color-pointing demo |
+| `hardware-demo` | **Hardware stack** — real CR5 hardware integration built from the software stack |
 
-This branch contains:
+The `main` branch contains:
 
 - Repaired Gazebo wrist camera (`wrist_rgbd_camera_link` preserved, not lumped).
 - Co-located RGB + depth sensors so HSV detection gets real color while depth is available.
@@ -28,10 +69,10 @@ This branch contains:
 ## Environment at a Glance
 
 ```text
-Host workspace  : /teamspace/studios/this_studio
-ROS workspace   : /teamspace/studios/this_studio/cr5_ws
-CR5 ROS repo    : /teamspace/studios/this_studio/cr5_ws/src/CR5_ROS
-Demo package    : /teamspace/studios/this_studio/cr5_ws/src/cr5_color_pointing
+Repo root       : current clone path (Lightning default: /teamspace/studios/this_studio)
+ROS workspace   : ./cr5_ws
+CR5 ROS repo    : ./cr5_ws/src/CR5_ROS
+Demo package    : ./cr5_ws/src/cr5_color_pointing
 Docker image    : cr5-ros-melodic-turbovnc:local
 Docker container: cr5ros
 Container ws    : /root/cr5_ws
@@ -57,7 +98,7 @@ If the commands are missing:
 ```bash
 source ~/.bashrc
 # still missing? run Docker recovery:
-cd /teamspace/studios/this_studio && ./setup-docker.sh && source ~/.bashrc
+./setup-docker.sh && source ~/.bashrc
 ```
 
 ---
@@ -83,7 +124,6 @@ docker exec -it cr5ros bash -lc 'source /usr/local/bin/cr5-env && COMMAND_HERE'
 Use when Docker lost the image/container but workspace files still exist:
 
 ```bash
-cd /teamspace/studios/this_studio
 ./setup-docker.sh
 source ~/.bashrc
 ```
@@ -113,15 +153,15 @@ Quick syntax checks:
 ```bash
 # Gazebo URDF
 xmllint --noout \
-  /teamspace/studios/this_studio/cr5_ws/src/CR5_ROS/dobot_description/urdf/cr5_robot_gazebo.urdf
+  cr5_ws/src/CR5_ROS/dobot_description/urdf/cr5_robot_gazebo.urdf
 
 # Demo config
 python -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1])); print("ok")' \
-  /teamspace/studios/this_studio/cr5_ws/src/cr5_color_pointing/config/demo.yaml
+  cr5_ws/src/cr5_color_pointing/config/demo.yaml
 
 # Main node
 python -m py_compile \
-  /teamspace/studios/this_studio/cr5_ws/src/cr5_color_pointing/scripts/color_pointing_node.py
+  cr5_ws/src/cr5_color_pointing/scripts/color_pointing_node.py
 ```
 
 ---
@@ -239,13 +279,19 @@ Expected:
 /wrist_rgbd/depth/points
 ```
 
-View the camera feed:
+View the camera feed inside the TurboVNC desktop:
 
 ```bash
 run-cr5-camera-rqt    # opens rqt_image_view in the TurboVNC desktop
 ```
 
-Browser stream (forward port `8080` first):
+Or view the camera feed in a local browser:
+
+```bash
+run-cr5-camera-web    # keep running; starts web_video_server on port 8080
+```
+
+`run-cr5-camera-rqt` does not serve the browser URL; `run-cr5-camera-web` starts `web_video_server`, which does. Then forward port `8080` and open:
 
 ```text
 http://localhost:8080/stream?topic=/wrist_rgbd/rgb/image_raw
@@ -261,7 +307,7 @@ docker exec -it cr5ros bash -lc \
 
 ### Step 4 — Launch the Color Pointing Node
 
-**Terminal 3** (after boxes are spawned):
+**Terminal 4** (after boxes are spawned):
 
 ```bash
 docker exec -it cr5ros bash -lc \
@@ -424,14 +470,14 @@ Resolution: `640×480`, ~10–11 Hz
 ```bash
 source ~/.bashrc
 # still missing:
-cd /teamspace/studios/this_studio && ./setup-docker.sh && source ~/.bashrc
+./setup-docker.sh && source ~/.bashrc
 ```
 
 ### Docker container missing or image gone
 
 ```bash
 docker ps -a && docker images | grep cr5
-cd /teamspace/studios/this_studio && ./setup-docker.sh
+./setup-docker.sh
 ```
 
 ### TurboVNC does not open
