@@ -21,9 +21,8 @@ cr5_ws/.catkin_tools/
 *.log
 core
 
-# Codex, Copilot, and assistant state
-.codex/
-.copilot/
+# Local workspace state
+docs/
 
 # Reversible backup for nested git metadata when flattening this workspace into one repo
 .git-nested-backups/

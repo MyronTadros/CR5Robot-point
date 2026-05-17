@@ -146,8 +146,6 @@ docker exec -it cr5ros bash -lc \
   'source /usr/local/bin/cr5-env && cd /root/cr5_ws && catkin_make -DCMAKE_BUILD_TYPE=Release'
 ```
 
-Documentation-only changes do not need a rebuild.
-
 Quick syntax checks:
 
 ```bash
@@ -606,21 +604,3 @@ cr5_ws/src/cr5_color_pointing/scripts/detect_color_once.py
 ```
 
 ---
-
-## Documentation Index
-
-| Doc | Topic |
-|---|---|
-| [docs/README.md](docs/README.md) | Documentation index |
-| [docs/00_PROJECT_OVERVIEW.md](docs/00_PROJECT_OVERVIEW.md) | Project goals |
-| [docs/01_LIGHTNING_DOCKER_ENVIRONMENT.md](docs/01_LIGHTNING_DOCKER_ENVIRONMENT.md) | Docker & Lightning setup |
-| [docs/04_GAZEBO_CONTROL_FIX.md](docs/04_GAZEBO_CONTROL_FIX.md) | Effort controller fix history |
-| [docs/05_WRIST_CAMERA_AND_PERCEPTION.md](docs/05_WRIST_CAMERA_AND_PERCEPTION.md) | Camera URDF, topics, TF |
-| [docs/06_COLOR_POINTING_PACKAGE.md](docs/06_COLOR_POINTING_PACKAGE.md) | Package architecture |
-| [docs/07_OPERATION_GUIDE.md](docs/07_OPERATION_GUIDE.md) | Step-by-step operation |
-| [docs/10_DECISIONS_LOG.md](docs/10_DECISIONS_LOG.md) | Design decisions |
-| [docs/11_CHANGELOG.md](docs/11_CHANGELOG.md) | Change history |
-| [docs/12_CURRENT_STATUS.md](docs/12_CURRENT_STATUS.md) | Latest verified state |
-| [docs/CR5_TROUBLESHOOTING.md](docs/CR5_TROUBLESHOOTING.md) | Extended troubleshooting |
-| [docs/CR5_CAMERA.md](docs/CR5_CAMERA.md) | Camera reference |
-| [docs/CR5_VERIFICATION_CHECKLIST.md](docs/CR5_VERIFICATION_CHECKLIST.md) | Verification checklist |
