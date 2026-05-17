@@ -6,6 +6,7 @@ import select
 import sys
 import threading
 import time
+import json
 
 import actionlib
 from actionlib_msgs.msg import GoalStatus
@@ -18,6 +19,12 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from trajectory_msgs.msg import JointTrajectoryPoint
 import tf2_ros
+
+try:
+    from urllib2 import Request, urlopen
+except ImportError:
+    from urllib.request import Request, urlopen
+
 
 from cr5_color_pointing.perception import ColorDepthDetector, ColorDetectionError, PointTopicDetector
 
@@ -163,7 +170,7 @@ class ColorPointingNode(object):
         rospy.loginfo("Execution mode is '%s'.", self.execution_mode)
         rospy.loginfo("Perception mode is '%s'.", self.perception_mode)
         if self.motion_only:
-            rospy.loginfo("Hardware motion-only mode is enabled; color commands are disabled.")
+            rospy.loginfo("Hardware motion-only mode is enabled; red/yellow/green use fixed scan-relative offsets.")
         rospy.loginfo("Using trajectory controller action %s.", self.controller_action)
         if not self.gazebo_joint_fallback_enabled:
             rospy.loginfo("Gazebo joint teleport fallback is disabled; using MoveIt/controller execution only.")
@@ -247,11 +254,8 @@ class ColorPointingNode(object):
             return True
         if action in ("red", "yellow", "green"):
             if self.motion_only:
-                rospy.logerr(
-                    "Color command '%s' rejected because hardware motion-only mode is enabled. "
-                    "Use scan or home until the camera pipeline is ready.",
-                    action,
-                )
+                if self._preflight_command(action):
+                    self.move_motion_only_offset(action)
                 return True
             if self._preflight_command(action):
                 self.point_at_color(action)
@@ -287,7 +291,7 @@ class ColorPointingNode(object):
         if self.hardware_status_required or self.require_robot_enabled or self.auto_enable_robot:
             if not self._ensure_robot_ready():
                 return False
-        if self.require_camera_topics and action in ("red", "yellow", "green"):
+        if self.require_camera_topics and (not self.motion_only) and action in ("red", "yellow", "green"):
             if not self._ensure_detection_source(action):
                 return False
         if not self._apply_speed_factor_once():
@@ -414,6 +418,156 @@ class ColorPointingNode(object):
             (rospy.get_param("~topics/depth_image", "/wrist_rgbd/depth/image_raw"), "sensor_msgs/Image"),
             (rospy.get_param("~topics/camera_info", "/wrist_rgbd/rgb/camera_info"), "sensor_msgs/CameraInfo"),
         ]
+
+    def _motion_only_offset_key_for_color(self, color):
+        """Resolve a typed color to the fixed motion slot using the HTTP locate API.
+
+        API examples:
+          /locate/red -> {"color":"red","location":"mid"}
+
+        Mapping:
+          left  -> yellow offset
+          mid   -> red offset
+          right -> green offset
+        """
+        if not bool(rospy.get_param("~motion/locate_api/enabled", False)):
+            return color
+
+        base_url = rospy.get_param("~motion/locate_api/base_url", "")
+        timeout = float(rospy.get_param("~motion/locate_api/timeout", 2.0))
+        mapping = rospy.get_param(
+            "~motion/locate_api/location_to_command",
+            {"left": "yellow", "mid": "red", "right": "green"},
+        )
+
+        if not base_url:
+            rospy.logerr("motion/locate_api/base_url is empty.")
+            return None
+
+        url = base_url.rstrip("/") + "/" + color
+        try:
+            req = Request(url)
+            response = urlopen(req, timeout=timeout)
+            raw = response.read()
+            if not isinstance(raw, str):
+                raw = raw.decode("utf-8")
+            data = json.loads(raw)
+        except Exception as exc:
+            rospy.logerr("Could not query locate API %s: %s", url, exc)
+            return None
+
+        reported_color = str(data.get("color", "")).strip().lower()
+        location = str(data.get("location", "")).strip().lower()
+
+        if reported_color and reported_color != color:
+            rospy.logwarn(
+                "Locate API color mismatch: requested '%s' but response color is '%s'.",
+                color,
+                reported_color,
+            )
+
+        offset_key = mapping.get(location)
+        if offset_key is None:
+            rospy.logerr(
+                "Locate API returned unsupported location '%s'. Expected one of: %s.",
+                location,
+                sorted(mapping.keys()),
+            )
+            return None
+
+        rospy.loginfo(
+            "Locate API: requested color '%s' is at location '%s'; using '%s' motion slot.",
+            color,
+            location,
+            offset_key,
+        )
+        return offset_key
+
+    def move_motion_only_offset(self, color):
+        rospy.loginfo("Motion-only %s command: moving to scan pose first.", color)
+        if not self.move_to_scan_pose():
+            rospy.logerr("Could not move to scan pose before motion-only %s command.", color)
+            return False
+
+        rospy.sleep(0.5)
+
+        offset_key = self._motion_only_offset_key_for_color(color)
+        if offset_key is None:
+            return False
+
+        offsets = rospy.get_param("~motion/motion_only_offsets", {})
+        commands = offsets.get("commands", {})
+        command = commands.get(offset_key)
+        if command is None:
+            rospy.logerr(
+                "No motion_only_offsets command configured for requested color '%s' resolved to motion slot '%s'.",
+                color,
+                offset_key,
+            )
+            return False
+
+        right_axis = offsets.get("right_axis_xyz", [0.0, -1.0, 0.0])
+        if len(right_axis) != 3:
+            rospy.logerr("motion_only_offsets/right_axis_xyz must have 3 values.")
+            return False
+
+        down_m = float(command.get("down_m", 0.0))
+        right_m = float(command.get("right_m", 0.0))
+        min_z = float(rospy.get_param("~motion/motion_only_min_z", 0.10))
+
+        try:
+            current = self.group.get_current_pose(self.end_effector_link)
+        except Exception as exc:
+            rospy.logerr("Could not read current pose for motion-only offset: %s", exc)
+            return False
+
+        target = PoseStamped()
+        target.header.stamp = rospy.Time.now()
+        target.header.frame_id = self.target_frame
+        target.pose = current.pose
+
+        # Down = negative Z in planning frame.
+        target.pose.position.z -= down_m
+
+        # Right = configurable planning-frame axis.
+        target.pose.position.x += float(right_axis[0]) * right_m
+        target.pose.position.y += float(right_axis[1]) * right_m
+        target.pose.position.z += float(right_axis[2]) * right_m
+
+        rospy.loginfo(
+            "Motion-only %s target: down=%.3f m, right=%.3f m, axis=[%.1f, %.1f, %.1f], target %s x=%.3f y=%.3f z=%.3f.",
+            color,
+            down_m,
+            right_m,
+            float(right_axis[0]),
+            float(right_axis[1]),
+            float(right_axis[2]),
+            target.header.frame_id,
+            target.pose.position.x,
+            target.pose.position.y,
+            target.pose.position.z,
+        )
+
+        if target.pose.position.z < min_z:
+            rospy.logerr(
+                "Refusing %s target: z=%.3f is below motion_only_min_z=%.3f.",
+                color,
+                target.pose.position.z,
+                min_z,
+            )
+            return False
+
+        return self.move_to_motion_only_pose(target, "%s motion-only offset" % color)
+
+    def move_to_motion_only_pose(self, pose, label):
+        if not self._prepare_for_planning(label):
+            return False
+        try:
+            self.group.set_pose_target(pose, self.end_effector_link)
+        except Exception as exc:
+            rospy.logerr("%s target is invalid: %s", label, exc)
+            return False
+        return self._plan_and_send_to_controller(label)
 
     def point_at_color(self, color):
         rospy.loginfo("Moving to scan pose before detecting %s.", color)

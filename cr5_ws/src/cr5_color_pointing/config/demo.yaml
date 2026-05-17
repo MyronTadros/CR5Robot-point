@@ -2,15 +2,12 @@ topics:
   rgb_image: /wrist_rgbd/rgb/image_raw
   depth_image: /wrist_rgbd/depth/image_raw
   camera_info: /wrist_rgbd/rgb/camera_info
-
 frames:
   planning_frame: world
   camera_frame: wrist_rgbd_camera_optical_frame
-
 moveit:
   planning_group: cr5_arm
   end_effector_link: Link6
-
 motion:
   execution_mode: moveit
   gazebo_model_name: robot
@@ -18,45 +15,87 @@ motion:
   safety_height: 0.25
   above_box_extra_clearance: 0.15
   scan_target_link: wrist_rgbd_camera_optical_frame
-
-  # Scan must use this joint-space observation pose.
-  # Do NOT use scan_position / scan_orientation here; those caused IK failure.
-  observation_joints: [0.34378241586489544, -0.207839157537828, -0.5200047031534822, -0.8883737435138563, 1.5699748257363364, 0.3523303922635028]
+  observation_joints:
+  - -1.22701391093
+  - -0.207839157537828
+  - -0.5200047031534822
+  - -0.8883737435138563
+  - 1.5699748257363364
+  - 0.3523303922635028
   scan_joint_tolerance: 0.035
-  # Keep the merged wrist camera optical +Z axis pointing down at the box.
-  above_box_orientation_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+  above_box_orientation_xyzw:
+  - 0.7071068
+  - -0.7071068
+  - 0.0
+  - 0.0
   center_camera_over_box: true
   home_state: home
-  home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  home_joints:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
   max_velocity_scaling: 0.2
   max_acceleration_scaling: 0.2
   joint_state_timeout: 5.0
   joint_state_max_age: 1.0
   use_single_point_trajectories: true
   single_point_duration: 15.0
-
 scene:
   ground_plane_z: 0.0
   cube_size: 0.05
-  max_tabletop_detection_z: 0.20
+  max_tabletop_detection_z: 0.2
   use_simulated_box_pose_fallback: false
   allow_simulated_detection_fallback: false
   boxes:
-    red: [0.45, -0.25, 0.025]
-    yellow: [0.55, 0.0, 0.025]
-    green: [0.45, 0.25, 0.025]
-
+    red:
+    - 0.45
+    - -0.25
+    - 0.025
+    yellow:
+    - 0.55
+    - 0.0
+    - 0.025
+    green:
+    - 0.45
+    - 0.25
+    - 0.025
 colors:
   red:
-    - lower: [0, 100, 80]
-      upper: [10, 255, 255]
-    - lower: [170, 100, 80]
-      upper: [180, 255, 255]
+  - lower:
+    - 0
+    - 100
+    - 80
+    upper:
+    - 10
+    - 255
+    - 255
+  - lower:
+    - 170
+    - 100
+    - 80
+    upper:
+    - 180
+    - 255
+    - 255
   yellow:
-    - lower: [20, 100, 80]
-      upper: [35, 255, 255]
+  - lower:
+    - 20
+    - 100
+    - 80
+    upper:
+    - 35
+    - 255
+    - 255
   green:
-    - lower: [40, 80, 60]
-      upper: [85, 255, 255]
-
+  - lower:
+    - 40
+    - 80
+    - 60
+    upper:
+    - 85
+    - 255
+    - 255
 command_topic: /cr5_color_pointing/command
